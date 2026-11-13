@@ -7886,7 +7886,7 @@ local Preferences = {
 	Sliders = {},
 	Dropdowns = {},
 	Inputs = {},
-	Theme = "Dark",
+	Theme = "Matrix",
 	TeleportMenuOpen = false,
 	TeleportMenuTab = "Items",
 }
@@ -8387,7 +8387,7 @@ local WindUIWindow = WindUI:CreateWindow({
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
 	Transparent = true,
-	Theme = "Dark",
+	Theme = "Matrix",
 	SideBarWidth = 200,
 })
 
