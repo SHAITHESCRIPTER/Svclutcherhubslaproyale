@@ -180,7 +180,7 @@ function Notify.Show(title, message, kind, icon, duration, important)
 	end
 
 	local payload = {
-		Title = tostring(title or "OP Slap Royale"),
+		Title = tostring(title or "SVCLUTCHER HUB"),
 		Content = tostring(message or ""),
 		Icon = icon or "bell",
 		Duration = duration or (important and 4 or 3),
@@ -196,7 +196,7 @@ function Notify.Show(title, message, kind, icon, duration, important)
 
 	if not ok then
 		pcall(function()
-			warn("[OP Slap Royale] " .. payload.Title .. ": " .. payload.Content)
+			warn("[SVCLUTCHER HUB] " .. payload.Title .. ": " .. payload.Content)
 		end)
 	end
 end
@@ -241,7 +241,8 @@ Main.CodeSearchRadius = 180
 Main.KeypadSearchRadius = 170
 
 Teleport.DefaultMaxStrikes = 4
-Teleport.DefaultCooldown = 3.5
+Teleport.DefaultCooldown = 5.0
+
 Teleport.DefaultDebounce = 0.5
 Teleport.DefaultPostFLock = 0.2
 Teleport.MaxStrikes = Teleport.DefaultMaxStrikes
@@ -979,21 +980,21 @@ function Teleport.CanPassStabilityGate()
 	local jumpLeft = waitTime - (now - (Teleport.LastJumpAt or 0))
 
 	if jumpLeft > 0 then
-		Teleport.ShowStabilityWarning("Wait after jumping before teleporting.", jumpLeft)
+		Teleport.ShowStabilityWarning("Wait after jumping before teleporting dummy.", jumpLeft)
 		return false
 	end
 
 	local ragdollLeft = waitTime - (now - (Teleport.LastRagdolledAt or now))
 
 	if ragdollLeft > 0 then
-		Teleport.ShowStabilityWarning("Recover from ragdoll before teleporting.", ragdollLeft)
+		Teleport.ShowStabilityWarning("Recover from ragdoll before teleporting dummy.", ragdollLeft)
 		return false
 	end
 
 	local busLandingLeft = waitTime - (now - (Teleport.LastBusLandingAt or 0))
 
 	if busLandingLeft > 0 then
-		Teleport.ShowStabilityWarning("Wait after landing from the bus.", busLandingLeft)
+		Teleport.ShowStabilityWarning("Wait after landing from the bus dummy.", busLandingLeft)
 		return false
 	end
 
@@ -3226,16 +3227,8 @@ local autoCollectPriority = {
 	"Bull's Essence",
 	"Boba",
 	"Speed Potion",
-	"Frog Potion",
 	"Sphere of Fury",
-	"Tomahawk",
-	"Gravitation Shard",
-	"Healing Potion",
 	"First Aid Kit",
-	"Cube of Ice",
-	"Bomb",
-	"Bombs",
-	"Bandage",
 	"Apple",
 	"Forcefield Crystal",
 	"Lightning Potion"
@@ -3460,7 +3453,6 @@ Items.PermanentCollectStopOrder = {
 	"Bull's Essence",
 	"Boba",
 	"Speed Potion",
-	"Frog Potion"
 }
 
 local secondaryCollectOrder = {
@@ -8049,8 +8041,8 @@ loadPreferences()
 ensurePreferenceTables()
 Preferences.Toggles.AutoCollect = false
 Preferences.Toggles.HideUnderMap = false
-Preferences.Toggles.AutoPickup = false
-Preferences.Toggles.AutoPermanentItems = false
+Preferences.Toggles.AutoPickup = true
+Preferences.Toggles.AutoPermanentItems = true
 queueSavePreferences()
 
 Teleport.CustomSettingDefinitions = {
@@ -8063,7 +8055,7 @@ Teleport.CustomSettingDefinitions = {
 	CustomTPDebounce = {
 		Default = Teleport.DefaultDebounce,
 		Min = 0,
-		Max = 30,
+		Max = 7,
 	},
 	CustomFLock = {
 		Default = Teleport.DefaultPostFLock,
@@ -8191,7 +8183,7 @@ function Teleport.WaitForFullGameLoad()
 			break
 		end
 
-		task.wait(0.1)
+		task.wait(0.2)
 	end
 
 	task.wait(1)
@@ -8389,13 +8381,13 @@ end
 
 local WindUIWindow = WindUI:CreateWindow({
 	Title = "SVCLUTCHER HUB OP",
-	Icon = "poop",
+	Icon = "terminal",
 	Author = "sub 2 svclutcher",
 	Folder = "SVCLUTCHER_HUB",
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
 	Transparent = true,
-	Theme = Preferences.Theme or "Dark",
+	Theme = "Dark",
 	SideBarWidth = 200,
 })
 
@@ -8403,7 +8395,7 @@ local TabMain = WindUIWindow:Tab({ Title = "Main", Icon = "star" })
 local TabItems = WindUIWindow:Tab({ Title = "Items", Icon = "box" })
 local TabTeleports = WindUIWindow:Tab({ Title = "Teleports", Icon = "map-pin" })
 local TabCombat = WindUIWindow:Tab({ Title = "Combat", Icon = "swords" })
-local TabBETA = WindUIWindow:Tab({ Title = "BETA", Icon = "flask-conical" })
+local TabBETA = WindUIWindow:Tab({ Title = "BETA OP FUNC", Icon = "flask-conical" })
 local TabSafety = WindUIWindow:Tab({ Title = "Safety", Icon = "shield" })
 local TabSettings = WindUIWindow:Tab({ Title = "Settings", Icon = "settings" })
 
