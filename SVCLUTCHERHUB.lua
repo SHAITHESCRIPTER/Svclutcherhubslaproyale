@@ -9923,7 +9923,7 @@ function UI.TeleportToEarlyBusPriorityItem(forceRestart)
 
 	task.spawn(function()
 		Items.LastEarlyBusPriorityTeleportAt = os.clock()
-		createNotification("Early Bus Jump", "Finding first priority item to land on.", "Info")
+		createNotification("BUS OVERRIDE", "Automatically handles early bus jumping.", "Info")
 
 		local itemName, itemCFrame, itemPosition, itemObject, itemPart = nil, nil, nil, nil, nil
 		local findUntil = os.clock() + 18
@@ -10227,7 +10227,7 @@ local function buildItemTeleportMenuNames()
 	Items.RefreshCrates()
 
 	if #Items.Crates > 0 then
-		liveNames[Utility.NormalizeName("Meteor Crate")] = true
+		liveNames[Utility.NormalizeName("Meteor Crate D3T3CT3D")] = true
 	end
 
 	table.sort(extra, function(left, right)
@@ -10291,8 +10291,8 @@ local function getTeleportRows(tabName)
 			})
 		end
 	elseif tabName == "Players" then
-		table.insert(rows, { Title = "Teleport To Nearest", Callback = Combat.TeleportToNearestPlayer })
-		table.insert(rows, { Title = "Teleport To Lowest Health", Callback = Combat.TeleportToLowestHealthPlayer })
+		table.insert(rows, { Title = "G○T○ N€@R€$+ ENTITY", Callback = Combat.TeleportToNearestPlayer })
+		table.insert(rows, { Title = "Teleport To L0WEST// ♡♡♡♡", Callback = Combat.TeleportToLowestHealthPlayer })
 
 		for _, targetPlayer in ipairs(Players:GetPlayers()) do
 			if targetPlayer ~= player then
@@ -10304,7 +10304,7 @@ local function getTeleportRows(tabName)
 				})
 			end
 		end
-	elseif tabName == "Locations" then
+	elseif tabName == "DESTINATIONS" then
 		for _, location in ipairs(Teleport.Locations) do
 			table.insert(rows, {
 				Title = location.Name,
@@ -10414,7 +10414,7 @@ local function findWindUIMainWindowInfo()
 	for _, object in ipairs(playerGui:GetDescendants()) do
 		if not isLauncherDescendant(object)
 			and (object:IsA("TextLabel") or object:IsA("TextButton"))
-			and object.Text == "OP Slap Royale" then
+			and object.Text == "$VC|UTCH3R HUB》》》》" then
 			local screenGui = getScreenGuiAncestor(object)
 
 			if screenGui then
@@ -10635,8 +10635,8 @@ end)
 local function updateTeleportMenuTabs()
 	for tabName, button in pairs(TeleportMenu.TabButtons) do
 		local active = tabName == TeleportMenu.ActiveTab
-		button.BackgroundColor3 = active and Color3.fromRGB(42, 84, 62) or Color3.fromRGB(22, 38, 32)
-		button.TextColor3 = active and Color3.fromRGB(245, 255, 238) or Color3.fromRGB(176, 212, 190)
+		button.BackgroundColor3 = active and Color3.fromRGB(0, 255, 65) or Color3.fromRGB(0, 25, 8)
+		button.TextColor3 = active and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(0, 255, 65)
 	end
 end
 
