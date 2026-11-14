@@ -8391,13 +8391,13 @@ local WindUIWindow = WindUI:CreateWindow({
 	SideBarWidth = 200,
 })
 
-local TabMain = WindUIWindow:Tab({ Title = "Main", Icon = "star" })
-local TabItems = WindUIWindow:Tab({ Title = "Items", Icon = "box" })
-local TabTeleports = WindUIWindow:Tab({ Title = "Teleports", Icon = "map-pin" })
-local TabCombat = WindUIWindow:Tab({ Title = "Combat", Icon = "swords" })
-local TabBETA = WindUIWindow:Tab({ Title = "BETA OP FUNC", Icon = "flask-conical" })
-local TabSafety = WindUIWindow:Tab({ Title = "Safety", Icon = "shield" })
-local TabSettings = WindUIWindow:Tab({ Title = "Settings", Icon = "settings" })
+local TabMain = WindUIWindow:Tab({ Title = "MAIN T3RM!N@L", Icon = "terminal" })
+local TabItems = WindUIWindow:Tab({ Title = "ITEMS=COLLECT", Icon = "box" })
+local TabTeleports = WindUIWindow:Tab({ Title = "GOTO_FUNC", Icon = "map-pin" })
+local TabCombat = WindUIWindow:Tab({ Title = "C0MB@T=FUNC", Icon = "swords" })
+local TabBETA = WindUIWindow:Tab({ Title = "FIXED_BETA=OPFUNC", Icon = "bug" })
+local TabSafety = WindUIWindow:Tab({ Title = "SECURITY", Icon = "shield" })
+local TabSettings = WindUIWindow:Tab({ Title = "=SETTINGS", Icon = "wrench" })
 
 local _windToggles = {}
 local _windSliders = {}
@@ -8925,7 +8925,7 @@ function UI.TeleportAutoRejoin(reason)
 		local joinedServer = false
 
 		if serverId then
-			createNotification("Auto Rejoin", "Joining fullest server (" .. tostring(playing) .. "/" .. tostring(maxPlayers) .. ").", "Info")
+			createNotification("lmao how u died dummy", "Joining fullest server (" .. tostring(playing) .. "/" .. tostring(maxPlayers) .. ").", "Info")
 			joinedServer = pcall(function()
 				Services.TeleportService:TeleportToPlaceInstance(placeId, serverId, player)
 			end)
@@ -9032,13 +9032,13 @@ function UI.SetInfiniteJump(state, silent)
 		UI.StartInfiniteJump()
 
 		if not silent then
-			createNotification("Infinite Jump", "Infinite Jump enabled.", "Success")
+			createNotification("Infinite rabbit", "Infinite Jump enabled.", "Success")
 		end
 	else
 		UI.StopInfiniteJump()
 
 		if not silent then
-			createNotification("Infinite Jump", "Infinite Jump disabled.")
+			createNotification("Infinite rabbit", "Infinite Jump disabled.")
 		end
 	end
 end
@@ -9962,7 +9962,7 @@ function UI.TeleportToEarlyBusPriorityItem(forceRestart)
 					Items.EarlyBusFBlockActive = true
 					Teleport.BlockFUntil = math.max(Teleport.BlockFUntil or 0, unlockAt)
 					Teleport.RefreshPickupLock()
-					createNotification("Early Bus Jump", "F locked for 10 seconds after early bus jump.", "Info")
+					createNotification("EARLY BUS YEET", "DONT COLLECT FOR 10 SEC DUMMY.", "Info")
 
 					task.delay(math.max(0.05, unlockAt - os.clock()), function()
 						if Items.EarlyBusPriorityTeleportToken ~= teleportToken then
@@ -9971,7 +9971,7 @@ function UI.TeleportToEarlyBusPriorityItem(forceRestart)
 
 						Items.EarlyBusFBlockActive = false
 						Teleport.RefreshPickupLock()
-						createNotification("Early Bus Jump", "F unlocked. Early Auto Collect starts in 1 second.", "Info")
+						createNotification("EARLY BUS YEET", "U CAN COLLECT. DONT BE DUMB WITH COOLDOWN.", "Info")
 					end)
 
 					Teleport.StabilizeItemView(root, itemPart)
@@ -10069,7 +10069,7 @@ function UI.SetAutoEarlyBusJump(state, silent)
 		UI.JumpBusTimerSeen = false
 
 		if not silent then
-			createNotification("Early Bus Jump", "Auto bus jump disabled.")
+			createNotification("Early Bus YEET", "Auto bus jump disabled.")
 		end
 	end
 end
@@ -11074,59 +11074,59 @@ local function applyTheme(themeName)
 end
 
 -- Main
-AddButton(TabMain, "Get Code + Go Barn", "Teleports to Barn and scans for puzzle code", "hash", Main.GetCodeGoBarn)
-AddButton(TabMain, "Open Teleport Menu", "Items, players, and map locations", "map", openTeleportSideMenu)
-AddToggle(TabMain, "Early Bus Jump", "Automatically jumps out when you are seated in the bus", false, UI.SetAutoEarlyBusJump, "EarlyBusJump")
-AddToggle(TabMain, "Infinite Jump", "Lets you jump again while airborne", false, UI.SetInfiniteJump, "InfiniteJump")
-AddToggle(TabMain, "Player Stats ESP", "Shows player health, kills, strength, and speed", false, UI.SetPlayerStatsESP, "PlayerESP")
-AddToggle(TabMain, "Item ESP", "Highlights dropped items with color tags", false, UI.SetItemESP, "ItemESP")
+AddButton(TabMain, "Get Code + Go Barn", "GOTO LAB ENTERS CODE", "hash", Main.GetCodeGoBarn)
+AddButton(TabMain, "Open Teleport Menu", "GOTO = ALL U KNOW WHAT THIS DOES", "map", openTeleportSideMenu)
+AddToggle(TabMain, "Early Bus YEET", "YEETS U OUT OF BUS LIKE A MAD TRUCK DRIVER", false, UI.SetAutoEarlyBusJump, "EarlyBusJump")
+AddToggle(TabMain, "Infinite yeet", "Lets you jump INFINITE", false, UI.SetInfiniteJump, "InfiniteJump")
+AddToggle(TabMain, "Player Stats ESP", "ESP = ENABLED", false, UI.SetPlayerStatsESP, "PlayerESP")
+AddToggle(TabMain, "Item ESP", "ESP ENABLED", false, UI.SetItemESP, "ItemESP")
 AddToggle(TabMain, "Auto Rejoin", "Rejoins after death or disconnect", false, UI.SetAutoRejoin, "AutoRejoin")
-AddToggle(TabMain, "Recommended Settings", "Slap Aura, ESP, anti-ragdoll, sorting, rejoin, and item menu", false, UI.SetRecommendedSettings, "RecommendedSettings")
+AddToggle(TabMain, "mr ducks his settings", "Slap Aura, ESP, anti-ragdoll, sorting, rejoin, and item menu", false, UI.SetRecommendedSettings, "RecommendedSettings")
 
 -- Items
-local _, autoCollectRef = AddToggle(TabItems, "Auto collect", "Collects priority items without waiting for the round countdown", false, Items.SetAutoCollect, "AutoCollect")
+local _, autoCollectRef = AddToggle(TabItems, "Auto collect", "GETS ITEMS AFTER U JUMPED", false, Items.SetAutoCollect, "AutoCollect")
 Items.AutoCollectToggle = autoCollectRef
 
-local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "Creates an invisible pickup zone around you", false, Items.SetAutoPickup, "AutoPickup")
+local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "AUTO PICK UP ARE U DUMMY?", false, Items.SetAutoPickup, "AutoPickup")
 Items.AutoPickupToggle = autoPickupRef
 
-AddToggle(TabItems, "Auto Heal", "Uses healing items when HP drops", false, Items.SetAutoHeal, "AutoHeal")
-AddToggle(TabItems, "Auto Sort", "Glove in slot 1, priority items next", false, Items.SetAutoSort, "AutoSort")
-local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent boosts on pickup", false, Items.SetAutoPermanentItems, "AutoPermanentItems")
+AddToggle(TabItems, "Auto Heal", "AUTO HEAL U KNOW BRO", false, Items.SetAutoHeal, "AutoHeal")
+AddToggle(TabItems, "Auto Sort", "WELL THIS IS BETA", false, Items.SetAutoSort, "AutoSort")
+local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent ITEMS ARE U DUMB", false, Items.SetAutoPermanentItems, "AutoPermanentItems")
 autoPermanentToggle = permanentRef
 
-AddButton(TabItems, "Use Spheres", "Uses all Sphere of Fury tools in your inventory", "circle", Items.UseSpheres)
-AddButton(TabItems, "Use Cubes", "Uses all Cube of Ice tools in your inventory", "box", Items.UseCubes)
-AddButton(TabItems, "Use All Items", "Uses every held game item quickly", "zap", Items.UseAllItems)
-AddButton(TabItems, "Drop All Items", "Drops every held game item quickly", "trash-2", Items.DropAllItems)
-AddButton(TabItems, "Drop Permanent Items", "Drops all permanent boost items quickly", "trash-2", Items.DropAllPermanents)
-AddButton(TabItems, "Drop Temp Items", "Drops non-permanent held items quickly", "trash", Items.DropTempItems)
-AddButton(TabItems, "Meteor Crate", "Teleports to nearest meteor crate", "box", Items.TeleportToCrate)
+AddButton(TabItems, "Use Spheres", "Uses all Sphere of Fury tools ARE U DUMB?", "circle", Items.UseSpheres)
+AddButton(TabItems, "Use Cubes", "Uses all Cube of Ice tools in your inventory USELESSSS", "box", Items.UseCubes)
+AddButton(TabItems, "Use All Items", "CHOMP CHOMP CHOMP CHOMP WELL I HAD MY DINNER", "zap", Items.UseAllItems)
+AddButton(TabItems, "Drop All Items", "IM HUNGRY", "trash-2", Items.DropAllItems)
+AddButton(TabItems, "Drop Permanent Items", "NOO I DONT WANT THAT", "trash-2", Items.DropAllPermanents)
+AddButton(TabItems, "Drop Temp Items", "Drops non-permanent held items quickly USELESS", "trash", Items.DropTempItems)
+AddButton(TabItems, "Meteor Crate", "Teleports to nearest meteor crate USELESS", "box", Items.TeleportToCrate)
 
 -- Teleports
-AddButton(TabTeleports, "Teleport On School Bus", "Teleports you on top of the school bus", "bus-front", Teleport.ToSchoolBusTop)
+AddButton(TabTeleports, "Teleport On School Bus", "Teleports you on top of the school bus HEHEHEHEHEEEE", "bus-front", Teleport.ToSchoolBusTop)
 
 -- Combat
-AddSlider(TabCombat, "Hitbox Size", "Adjust hitbox size (10-20)", Combat.HitboxMinSize, Combat.HitboxMaxSize, Combat.HitboxSize, 1, Combat.SetHitboxSize)
-AddToggle(TabCombat, "Expand Hitbox", "Applies expanded hitbox to players", false, Combat.SetHitboxExpanded, "ExpandHitbox")
-AddToggle(TabCombat, "Visualize Hitboxes", "Shows neon hitbox preview", Combat.HitboxVisible, Combat.SetHitboxVisible, "VisualizeHitboxes")
-AddToggle(TabCombat, "Slap Aura", "Slaps valid nearby match players", false, Combat.SetSlapAura, "SlapAura")
-AddToggle(TabCombat, "Auto Slap", "Taps when enemy enters hitbox", false, Combat.SetAutoGloveTap, "AutoSlap")
-AddButton(TabCombat, "Teleport To Lowest Health", "Teleports you behind the player with the lowest HP", "heart-pulse", Combat.TeleportToLowestHealthPlayer)
-AddButton(TabCombat, "Teleport To Nearest", "Teleports you behind the closest player", "crosshair", Combat.TeleportToNearestPlayer)
+AddSlider(TabCombat, "Hitbox Size", "Adjust hitbox size (10-20) THE WORD SAYS IT", Combat.HitboxMinSize, Combat.HitboxMaxSize, Combat.HitboxSize, 1, Combat.SetHitboxSize)
+AddToggle(TabCombat, "Expand Hitbox", "Applies expanded hitbox to players BRUHHHH", false, Combat.SetHitboxExpanded, "ExpandHitbox")
+AddToggle(TabCombat, "Visualize Hitboxes", "Shows neon hitbox preview OOH SHINYY", Combat.HitboxVisible, Combat.SetHitboxVisible, "VisualizeHitboxes")
+AddToggle(TabCombat, "Slap Aura", "WELL U DEAD BUDDY", false, Combat.SetSlapAura, "SlapAura")
+AddToggle(TabCombat, "Auto Slap", "auto clicker 3.0", false, Combat.SetAutoGloveTap, "AutoSlap")
+AddButton(TabCombat, "Teleport To Lowest Health", "he knew he fucked up", "heart-pulse", Combat.TeleportToLowestHealthPlayer)
+AddButton(TabCombat, "Teleport To Nearest", "cooked 2.0", "crosshair", Combat.TeleportToNearestPlayer)
 
 -- BETA
-AddButton(TabBETA, "Collect Crates", "Teleports under each crate and collects them in order", "box", Items.CollectCrates)
-AddToggle(TabBETA, "Auto collect crates", "Rapidly slaps tracked meteor crates", false, Items.SetFastCollectCrates, "FastCollectCrates")
-AddToggle(TabBETA, "Crate Aura", "Slaps nearby meteor crates without teleporting", false, Items.SetCrateAura, "CrateAura")
-local _, earlyCollectRef = AddToggle(TabBETA, "Early Auto Collect", "Starts collecting items before round begins", false, Items.SetEarlyAutoCollect, "EarlyAutoCollect")
+AddButton(TabBETA, "Collect Crates", "Teleports under each crate and collects them in order USELESS", "box", Items.CollectCrates)
+AddToggle(TabBETA, "Auto collect crates", "Rapidly slaps tracked meteor crates USELESS", false, Items.SetFastCollectCrates, "FastCollectCrates")
+AddToggle(TabBETA, "Crate Aura", "Slaps nearby meteor crates without teleporting USELESS", false, Items.SetCrateAura, "CrateAura")
+local _, earlyCollectRef = AddToggle(TabBETA, "Early Auto Collect", "10 9 8 7 6 5 4 SLOOOOORP OOH DELICIOUS ITEMS", false, Items.SetEarlyAutoCollect, "EarlyAutoCollect")
 Items.EarlyAutoCollectToggle = earlyCollectRef
 
 -- Safety
 AddButton(TabSafety, "Auto optimize cooldown settings", "Checks ping and updates cooldown settings", "gauge", Teleport.RunAutoOptimizeCooldownSettings)
-AddToggle(TabSafety, "Anti-Staff", "Leaves when recording keywords detected", false, Anti.SetStaffEnabled, "AntiStaff")
-AddToggle(TabSafety, "Hide under map", "Hides your character below the map", false, Anti.SetHideUnderMap, "HideUnderMap")
-AddToggle(TabSafety, "Anti-Ragdoll / Anti-Slap", "Invisible cage on knockback", false, Combat.SetAntiSlap, "AntiRagdoll")
+AddToggle(TabSafety, "Anti-Staff", "Leaves when recording keywords detected FUCKING TENCELL", false, Anti.SetStaffEnabled, "AntiStaff")
+AddToggle(TabSafety, "Hide under map", "Hides your character below the map DUMMY", false, Anti.SetHideUnderMap, "HideUnderMap")
+AddToggle(TabSafety, "Anti-Ragdoll / Anti-Slap", "Invisible cage on knockback ANTI RAGGDOLL", false, Combat.SetAntiSlap, "AntiRagdoll")
 
 -- Settings
 AddButton(TabSettings, "Reset to default settings?", "Resets custom strikes, teleport debounce, and F lock", "rotate-ccw", function()
