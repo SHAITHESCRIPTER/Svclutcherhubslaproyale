@@ -1,5 +1,5 @@
 --[[
-OP svclutcher script 
+OP svclutcher script
 
 Migration map:
 - Main tab:
@@ -213,6 +213,48 @@ local UI = {
 }
 
 local gui = nil
+local HubGuiObjects = {}
+
+local function registerHubGui(object)
+	if not object then
+		return
+	end
+
+	gui = object
+
+	if not HubGuiObjects[object] then
+		HubGuiObjects[object] = true
+
+		if object.Destroying then
+			object.Destroying:Connect(function()
+				HubGuiObjects[object] = nil
+
+				if gui == object then
+					gui = nil
+				end
+			end)
+		end
+	end
+end
+
+local function isHubGuiObject(object)
+	if not object then
+		return false
+	end
+
+	if gui and gui.Parent and (object == gui or object:IsDescendantOf(gui)) then
+		return true
+	end
+
+	for hubGui in pairs(HubGuiObjects) do
+		if hubGui.Parent and (object == hubGui or object:IsDescendantOf(hubGui)) then
+			return true
+		end
+	end
+
+	return false
+end
+
 local isTouchDevice = UserInputService.TouchEnabled
 local function getViewportSize()
 	local camera = workspace.CurrentCamera
@@ -300,9 +342,8 @@ Items.CrateWatcherRoot = nil
 Items.CrateWatcherStarting = false
 Items.CrateCollectPart = nil
 Items.CollectCratesBusy = false
-Items.CollectCratesSlapInterval = 0.025
+Items.CollectCratesSlapInterval = 0.06
 Items.CrateCollectSlaps = 8
-Items.CrateCollectSlapInterval = 0.12
 Items.FastCollectCratesEnabled = false
 Items.FastCollectCratesThread = nil
 Items.FastCollectCratesInterval = 0.08
@@ -310,7 +351,6 @@ Items.FastCollectCratesLastScan = 0
 Items.FastCollectCratesScanInterval = 1.5
 Items.FastCollectCratesBox = nil
 Items.FastCollectCratesBoxSize = Vector3.new(20, 20, 20)
-Items.FastCollectCratesOverlapParams = nil
 Items.FastCollectCratesLastNearbyScan = 0
 Items.FastCollectCratesNearbyScanInterval = 0.35
 Items.FastCollectCratesNearbyCache = {}
@@ -493,7 +533,6 @@ function Main.GetPuzzleCode()
 		end
 	end
 
-	print("CODE:", code)
 	return code
 end
 
@@ -807,38 +846,6 @@ function Main.FindSlapRoyaleTimer()
 	Main.TimerCachedObject = bestObject
 	Main.TimerCachedNumber = bestNumber
 	return bestNumber, bestObject
-end
-
-function Main.StartSlapRoyaleTimerPrinter()
-	if Main.TimerPrinterRunning then
-		return
-	end
-
-	Main.TimerPrinterRunning = true
-	Main.TimerPrinterLastNumber = nil
-
-	task.spawn(function()
-		while Main.TimerPrinterRunning do
-			local number = Main.FindSlapRoyaleTimer()
-
-			if number then
-				if not Main.TimerPrinterLastNumber or number < Main.TimerPrinterLastNumber then
-					Main.TimerPrinterLastNumber = number
-
-					if number <= 0 then
-						Main.TimerPrinterRunning = false
-						break
-					end
-				elseif number > Main.TimerPrinterLastNumber then
-					Main.TimerPrinterLastNumber = number
-				end
-			end
-
-			task.wait(0.25)
-		end
-
-		Main.TimerPrinterRunning = false
-	end)
 end
 
 function Teleport.GetCooldownLeft()
@@ -1457,10 +1464,6 @@ function Teleport.GetItemCFrame(itemPart, excludeInstances)
 	return CFrame.new(position + Vector3.new(0, 4, 0))
 end
 
-function Teleport.CreateMarker(position)
-	return nil
-end
-
 function Teleport.ToLocation(locationName, position, forceTeleport)
 	if forceTeleport then
 		Teleport.LockedUntil = 0
@@ -1497,9 +1500,6 @@ function Teleport.ToLocation(locationName, position, forceTeleport)
 	end
 
 	local groundCFrame = Teleport.GetGroundCFrame(position, { character })
-	local distance = (root.Position - groundCFrame.Position).Magnitude
-
-	print("[TELEPORT DEBUG]", locationName, "distance:", math.floor(distance), "target:", groundCFrame.Position)
 
 	Teleport.MoveRoot(root, groundCFrame)
 
@@ -2018,6 +2018,39 @@ function Items.TeleportTo(itemName)
 	createNotification("Items", "Teleported to " .. itemName)
 end
 
+local movementSave = nil
+
+local function setMovementPaused(paused)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	if not humanoid then
+		return
+	end
+
+	if paused then
+		if not movementSave then
+			movementSave = {
+				WalkSpeed = humanoid.WalkSpeed,
+				JumpPower = humanoid.JumpPower,
+				JumpHeight = humanoid.JumpHeight,
+				AutoRotate = humanoid.AutoRotate
+			}
+		end
+
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+		humanoid.AutoRotate = false
+	elseif movementSave then
+		humanoid.WalkSpeed = movementSave.WalkSpeed
+		humanoid.JumpPower = movementSave.JumpPower
+		humanoid.JumpHeight = movementSave.JumpHeight
+		humanoid.AutoRotate = movementSave.AutoRotate
+		movementSave = nil
+	end
+end
+
 function Items.GetCratePart(crate)
 	if not crate or not crate.Parent or not crate:IsDescendantOf(workspace) then
 		return nil
@@ -2049,61 +2082,11 @@ function Items.GetCratePart(crate)
 	return part
 end
 
-function Items.IsKnownNonCrateItemName(text)
-	local normalizedName = Utility.NormalizeName(text)
-	local knownNames = {
-		"Apple", "Bandage", "Boba", "Bomb", "Bombs", "Bull's Essence",
-		"Cube of Ice", "First Aid Kit", "Forcefield Crystal", "Frog Potion",
-		"Gravitation Shard", "Healing Potion", "Lightning Potion",
-		"Potion of Strength", "Speed Potion", "Sphere of Fury",
-		"Tomahawk", "True Power"
-	}
-
-	for _, itemName in ipairs(knownNames) do
-		if normalizedName == Utility.NormalizeName(itemName) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Items.NameLooksLikeCrate(text)
-	local normalizedName = Utility.NormalizeName(text)
-
-	return string.find(normalizedName, "crate")
-		or string.find(normalizedName, "chest")
-		or string.find(normalizedName, "meteor")
-		or string.find(normalizedName, "loot")
-		or string.find(normalizedName, "supply")
-		or string.find(normalizedName, "drop")
-		or string.find(normalizedName, "box")
-end
-
 function Items.GetShipmentCratesRoot()
 	local shipments = workspace:FindFirstChild("Shipments")
 	local crates = shipments and shipments:FindFirstChild("Crates")
 
 	return crates
-end
-
-function Items.IsShipmentCrateObject(object)
-	local cratesRoot = Items.GetShipmentCratesRoot()
-
-	if not cratesRoot or not object or not object:IsDescendantOf(cratesRoot) then
-		return false
-	end
-
-	local current = object
-	while current and current ~= cratesRoot do
-		if current.Name == "Crate" and Items.GetCratePart(current) then
-			return true
-		end
-
-		current = current.Parent
-	end
-
-	return false
 end
 
 function Items.GetShipmentCrates()
@@ -2121,28 +2104,6 @@ function Items.GetShipmentCrates()
 	end
 
 	return crates
-end
-
-function Items.GetTopItemObject(object)
-	local root = Items.GetSearchRoot()
-
-	if not root or not object or not object:IsDescendantOf(root) then
-		return nil, root
-	end
-
-	local current = object
-	local topItem = object
-
-	while current and current ~= root do
-		topItem = current
-		current = current.Parent
-	end
-
-	return topItem, root
-end
-
-function Items.IsCrateCandidate(object)
-	return Items.IsShipmentCrateObject(object)
 end
 
 function Items.GetCrateRoot(object)
@@ -2309,19 +2270,6 @@ function Items.IsCratePartInFastCollectBox(cratePart, root)
 	return math.abs(relativePosition.X) <= halfSize.X
 		and math.abs(relativePosition.Y) <= halfSize.Y
 		and math.abs(relativePosition.Z) <= halfSize.Z
-end
-
-function Items.GetFastCollectOverlapParams()
-	if Items.FastCollectCratesOverlapParams then
-		return Items.FastCollectCratesOverlapParams
-	end
-
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.RespectCanCollide = false
-	Items.FastCollectCratesOverlapParams = params
-
-	return params
 end
 
 function Items.GetNearbyCrateParts(root)
@@ -2796,9 +2744,7 @@ function Items.CollectSingleCrate(crate, alreadyTeleported)
 			break
 		end
 
-		if setMovementPaused then
-			setMovementPaused(true)
-		end
+		setMovementPaused(true)
 
 		local part = Items.GetCratePart(crate)
 
@@ -2824,82 +2770,79 @@ function Items.CollectCrates()
 
 	Items.CollectCratesBusy = true
 	Items.StartCrateWatcher()
-
-	if setMovementPaused then
-		setMovementPaused(true)
-	end
+	setMovementPaused(true)
 
 	task.spawn(function()
-		local targets = Items.GetCrateCollectTargets()
+		local ok, err = pcall(function()
+			local targets = Items.GetCrateCollectTargets()
 
-		if #targets == 0 then
-			createNotification("Collect Crates", "No crates found.", "Warning")
-			Items.CollectCratesBusy = false
-			if setMovementPaused then
-				setMovementPaused(false)
+			if #targets == 0 then
+				createNotification("Collect Crates", "No crates found.", "Warning")
+				return
 			end
-			Items.ClearCrateCollectPart()
-			return
-		end
 
-		local crateCount = math.max(#targets, Items.CountShipmentCrates())
-		local currentCrate = nil
-		createNotification("Collect Crates", "Collecting " .. tostring(crateCount) .. " crate(s).", "Info")
+			local crateCount = math.max(#targets, Items.CountShipmentCrates())
+			local currentCrate = nil
+			createNotification("Collect Crates", "Collecting " .. tostring(crateCount) .. " crate(s).", "Info")
 
-		local function moveToCrate(crate)
-			if not crate or not crate.Parent or not Items.GetCratePart(crate) then
+			local function moveToCrate(crate)
+				if not crate or not crate.Parent or not Items.GetCratePart(crate) then
+					return false
+				end
+
+				if Items.TeleportUnderCrate(crate) then
+					currentCrate = crate
+					return true
+				end
+
 				return false
 			end
 
-			if Items.TeleportUnderCrate(crate) then
-				currentCrate = crate
-				return true
-			end
+			local firstReady = Items.GetReadyCrateTarget()
+			moveToCrate(firstReady or Items.GetFirstLiveCrateTarget())
 
-			return false
-		end
-
-		local firstReady = Items.GetReadyCrateTarget()
-		moveToCrate(firstReady or Items.GetFirstLiveCrateTarget())
-
-		while Items.CollectCratesBusy do
-			if setMovementPaused then
+			while Items.CollectCratesBusy do
 				setMovementPaused(true)
-			end
 
-			if currentCrate and Items.IsCrateUsedUp(currentCrate) then
-				currentCrate = nil
-			end
-
-			if not currentCrate then
-				local readyCrate, liveCount = Items.GetReadyCrateTarget()
-
-				if liveCount <= 0 then
-					break
+				if currentCrate and Items.IsCrateUsedUp(currentCrate) then
+					currentCrate = nil
 				end
 
-				moveToCrate(readyCrate or Items.GetFirstLiveCrateTarget())
-			elseif not Items.CrateHasActiveFire(currentCrate) then
-				Items.CollectSingleCrate(currentCrate, true)
-				currentCrate = nil
-			else
-				local readyCrate = Items.GetReadyCrateTarget()
+				if not currentCrate then
+					local readyCrate, liveCount = Items.GetReadyCrateTarget()
 
-				if readyCrate and readyCrate ~= currentCrate then
-					moveToCrate(readyCrate)
+					if liveCount <= 0 then
+						break
+					end
+
+					moveToCrate(readyCrate or Items.GetFirstLiveCrateTarget())
+				elseif not Items.CrateHasActiveFire(currentCrate) then
+					Items.CollectSingleCrate(currentCrate, true)
+					currentCrate = nil
 				else
-					task.wait(0.1)
+					local readyCrate = Items.GetReadyCrateTarget()
+
+					if readyCrate and readyCrate ~= currentCrate then
+						moveToCrate(readyCrate)
+					else
+						task.wait(0.1)
+					end
 				end
 			end
-		end
 
-		Items.RefreshCrates()
+			Items.RefreshCrates()
+		end)
+
 		Items.CollectCratesBusy = false
-		if setMovementPaused then
-			setMovementPaused(false)
+		setMovementPaused(false)
+
+		if ok then
+			Items.MoveUnderMapAfterCrates()
+			createNotification("Collect Crates", "Finished collecting crates.", "Success")
+		else
+			Items.ClearCrateCollectPart()
+			createNotification("Collect Crates", "Stopped: " .. tostring(err), "Error")
 		end
-		Items.MoveUnderMapAfterCrates()
-		createNotification("Collect Crates", "Finished collecting crates.", "Success")
 	end)
 end
 
@@ -3266,7 +3209,6 @@ local function itemNameMatches(object, wantedName)
 	return getStrictItemMatchObject(object, wantedName) ~= nil
 end
 
-local movementSave = nil
 local visitedCollectPositions = {}
 local ignoredCollectTargets = {}
 local ignoredCollectPositions = {}
@@ -3320,37 +3262,6 @@ local function getLiveItemPart(object)
 	end
 
 	return part
-end
-
-local function setMovementPaused(paused)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-	if not humanoid then
-		return
-	end
-
-	if paused then
-		if not movementSave then
-			movementSave = {
-				WalkSpeed = humanoid.WalkSpeed,
-				JumpPower = humanoid.JumpPower,
-				JumpHeight = humanoid.JumpHeight,
-				AutoRotate = humanoid.AutoRotate
-			}
-		end
-
-		humanoid.WalkSpeed = 0
-		humanoid.JumpPower = 0
-		humanoid.JumpHeight = 0
-		humanoid.AutoRotate = false
-	elseif movementSave then
-		humanoid.WalkSpeed = movementSave.WalkSpeed
-		humanoid.JumpPower = movementSave.JumpPower
-		humanoid.JumpHeight = movementSave.JumpHeight
-		humanoid.AutoRotate = movementSave.AutoRotate
-		movementSave = nil
-	end
 end
 
 local function isVisitedCollectPosition(position)
@@ -3432,10 +3343,6 @@ end
 local primaryCollectOrder
 
 function getFullCollectibleSearchPool()
-	return Items.GetSearchChildren()
-end
-
-local function getImmediateCollectibleSearchPool()
 	return Items.GetSearchChildren()
 end
 
@@ -3686,7 +3593,7 @@ local function findImmediatePriorityCollectTarget()
 		local closestPart = nil
 		local closestDistance = math.huge
 
-		for _, object in ipairs(getImmediateCollectibleSearchPool()) do
+		for _, object in ipairs(Items.GetSearchChildren()) do
 			if itemNameMatches(object, wantedName) then
 				local part = getLiveItemPart(object)
 
@@ -3752,7 +3659,7 @@ function pressF(skipPickupLock)
 	local VirtualInputManager = game:GetService("VirtualInputManager")
 	local pressed = false
 
-	if not skipPickupLock and (Items.EarlyBusFBlockActive == true or Items.BusLandingFBlockActive == true) then
+	if not skipPickupLock and Items.IsPickupInputLocked() then
 		return false
 	end
 
@@ -3765,7 +3672,7 @@ function pressF(skipPickupLock)
 			task.wait(0.03)
 		end
 
-		if not skipPickupLock and Items.IsPickupInputLocked and Items.IsPickupInputLocked() then
+		if not skipPickupLock and Items.IsPickupInputLocked() then
 			return
 		end
 
@@ -3779,7 +3686,7 @@ function pressF(skipPickupLock)
 end
 
 function Items.TryPickupPrompt(itemObject, itemPart)
-	if Items.IsPickupInputLocked and Items.IsPickupInputLocked() then
+	if Items.IsPickupInputLocked() then
 		return false
 	end
 
@@ -3831,7 +3738,7 @@ function Items.GetMobilePickupButtonScore(button)
 		or not button.Visible
 		or button.AbsoluteSize.X < 12
 		or button.AbsoluteSize.Y < 12
-		or (gui and button:IsDescendantOf(gui)) then
+		or isHubGuiObject(button) then
 		return 0
 	end
 
@@ -4332,8 +4239,6 @@ function Items.DisableEarlyAutoCollectConflicts(mode, silent)
 			createNotification(Items.GetPriorityCollectTitle(mode), "Auto Use Permanent Items disabled.", "Info")
 		end
 	end
-
-	Items.ForceAutoPermanentItemsOff()
 end
 
 function Items.RestoreEarlyAutoCollectConflicts(mode, silent)
@@ -4516,7 +4421,6 @@ function Items.RunPriorityAutoCollect(mode)
 
 			if number then
 				Items.EarlyAutoCollectSawTimer = true
-				Main.TimerPrinterLastNumber = number
 
 				if number <= 3 then
 					break
@@ -6037,30 +5941,6 @@ function Combat.IsRagdolledTarget(character, humanoid, targetPlayer)
 		or state == Enum.HumanoidStateType.GettingUp
 end
 
-function Combat.IsValidAutoTapTarget(targetPlayer)
-	if targetPlayer == player then
-		return nil, nil, nil
-	end
-
-	local character = targetPlayer.Character
-	if not character then
-		return nil, nil, nil
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
-
-	if not humanoid or not root or humanoid.Health <= 0 then
-		return nil, nil, nil
-	end
-
-	if Combat.IsRagdolledTarget(character, humanoid, targetPlayer) then
-		return nil, nil, nil
-	end
-
-	return character, humanoid, root
-end
-
 function Combat.IsGlovePart(object)
 	if not object or not object:IsA("BasePart") then
 		return false
@@ -6225,7 +6105,7 @@ function Combat.FindAutoGloveTapTarget()
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
-		local targetCharacter, _, targetRoot = Combat.IsValidAutoTapTarget(targetPlayer)
+		local targetCharacter, _, targetRoot = Combat.GetValidPlayerTarget(targetPlayer)
 
 		if targetRoot and (Combat.ArePartsInsideHitbox(equippedGloveParts, targetRoot) or Combat.IsTargetInAutoTapRange(root, targetRoot)) then
 			return targetPlayer
@@ -6724,7 +6604,7 @@ function Combat.StartGloveTpSlap()
 
 				if ok and guiObjects then
 					for _, guiObject in ipairs(guiObjects) do
-						if gui and (guiObject == gui or guiObject:IsDescendantOf(gui)) then
+						if isHubGuiObject(guiObject) then
 							return Enum.ContextActionResult.Pass
 						end
 					end
@@ -7040,19 +6920,6 @@ function Combat.SetAntiSlap(state, silent)
 			createNotification("Anti-Ragdoll", "Anti-Ragdoll disabled.")
 		end
 	end
-end
-
-function Combat.GetPlayerRoot(targetPlayer)
-	if not targetPlayer or targetPlayer == player then
-		return nil
-	end
-
-	local character = targetPlayer.Character
-	if not character then
-		return nil
-	end
-
-	return character:FindFirstChild("HumanoidRootPart")
 end
 
 function Combat.GetPlayerHumanoid(targetPlayer)
@@ -7487,82 +7354,6 @@ Anti = {
 	}
 }
 
-function Anti.IsHazardName(text)
-	local lowerName = string.lower(tostring(text or ""))
-	local hazardWords = {
-		"acid",
-		"lava",
-		"kill",
-		"damage",
-		"death",
-		"deadly",
-		"hazard",
-		"hurt",
-		"burn",
-		"fire",
-		"void",
-		"toxic"
-	}
-
-	for _, word in ipairs(hazardWords) do
-		if string.find(lowerName, word, 1, true) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Anti.HasHazardAssetId(object)
-	local targetAssetId = "113506713"
-
-	local function matchesAssetId(value)
-		return string.find(tostring(value or ""), targetAssetId, 1, true) ~= nil
-	end
-
-	if object:IsA("MeshPart") and (matchesAssetId(object.MeshId) or matchesAssetId(object.TextureID)) then
-		return true
-	end
-
-	for _, descendant in ipairs(object:GetDescendants()) do
-		if descendant:IsA("SpecialMesh") and (matchesAssetId(descendant.MeshId) or matchesAssetId(descendant.TextureId)) then
-			return true
-		end
-
-		if descendant:IsA("Decal") and matchesAssetId(descendant.Texture) then
-			return true
-		end
-
-		if descendant:IsA("Texture") and matchesAssetId(descendant.Texture) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Anti.IsHazardPart(object)
-	if not object or not object:IsA("BasePart") then
-		return false
-	end
-
-	if Anti.HasHazardAssetId(object) then
-		return true
-	end
-
-	local current = object
-
-	while current and current ~= workspace do
-		if Anti.IsHazardName(current.Name) then
-			return true
-		end
-
-		current = current.Parent
-	end
-
-	return false
-end
-
 function Anti.EnableAcidLava()
 	local covers = {
 		{
@@ -7884,6 +7675,127 @@ pcall(function()
 		Dialog = "#001405",
 		Icon = "#00FF41",
 	})
+	WindUI:AddTheme({
+		Name = "Cyber Lime",
+		Toggle = "#33C759",
+		Accent = "#B6FF00",
+		Outline = "#D4FF66",
+		Text = "#F4FFE0",
+		PlaceholderText = "#A8CC77",
+		Background = "#0A0E00",
+		Dialog = "#141C00",
+		Icon = "#B6FF00",
+	})
+	WindUI:AddTheme({
+		Name = "Solar Flare",
+		Toggle = "#33C759",
+		Accent = "#FFB000",
+		Outline = "#FFD166",
+		Text = "#FFF8E6",
+		PlaceholderText = "#D4B477",
+		Background = "#140F00",
+		Dialog = "#241A00",
+		Icon = "#FFB000",
+	})
+	WindUI:AddTheme({
+		Name = "Ocean Sync",
+		Toggle = "#33C759",
+		Accent = "#00B4D8",
+		Outline = "#66D9F0",
+		Text = "#E6FBFF",
+		PlaceholderText = "#77C4D4",
+		Background = "#000C14",
+		Dialog = "#001824",
+		Icon = "#00B4D8",
+	})
+	WindUI:AddTheme({
+		Name = "Rose Terminal",
+		Toggle = "#33C759",
+		Accent = "#FF4D94",
+		Outline = "#FF8FB8",
+		Text = "#FFF0F6",
+		PlaceholderText = "#D488A8",
+		Background = "#14040A",
+		Dialog = "#240A14",
+		Icon = "#FF4D94",
+	})
+	WindUI:AddTheme({
+		Name = "Midnight Purple",
+		Toggle = "#33C759",
+		Accent = "#7B2CBF",
+		Outline = "#A96BEA",
+		Text = "#F2EAFF",
+		PlaceholderText = "#A888CC",
+		Background = "#0A0414",
+		Dialog = "#140A24",
+		Icon = "#7B2CBF",
+	})
+	WindUI:AddTheme({
+		Name = "Sakura",
+		Toggle = "#33C759",
+		Accent = "#FFB3C6",
+		Outline = "#FFD6E0",
+		Text = "#FFF5F7",
+		PlaceholderText = "#D4A8B4",
+		Background = "#140A0D",
+		Dialog = "#241016",
+		Icon = "#FFB3C6",
+	})
+	WindUI:AddTheme({
+		Name = "Arctic",
+		Toggle = "#33C759",
+		Accent = "#8ED4FF",
+		Outline = "#C2E9FF",
+		Text = "#F2FBFF",
+		PlaceholderText = "#8FB4C6",
+		Background = "#040A10",
+		Dialog = "#0A141C",
+		Icon = "#8ED4FF",
+	})
+	WindUI:AddTheme({
+		Name = "Ember",
+		Toggle = "#33C759",
+		Accent = "#E03E1A",
+		Outline = "#FF7A55",
+		Text = "#FFF2ED",
+		PlaceholderText = "#D4907A",
+		Background = "#140704",
+		Dialog = "#240D08",
+		Icon = "#E03E1A",
+	})
+	WindUI:AddTheme({
+		Name = "Toxic",
+		Toggle = "#33C759",
+		Accent = "#39FF14",
+		Outline = "#7CFF66",
+		Text = "#F0FFF0",
+		PlaceholderText = "#88CC88",
+		Background = "#020A02",
+		Dialog = "#041404",
+		Icon = "#39FF14",
+	})
+	WindUI:AddTheme({
+		Name = "Phantom",
+		Toggle = "#33C759",
+		Accent = "#9AA5B1",
+		Outline = "#C7CFD6",
+		Text = "#F7F9FA",
+		PlaceholderText = "#9AA5B1",
+		Background = "#07090A",
+		Dialog = "#0F1315",
+		Icon = "#9AA5B1",
+	})
+	WindUI:AddTheme({
+		Name = "Cotton Candy",
+		Toggle = "#33C759",
+		Accent = "#FF9CE0",
+		Outline = "#FFC2EE",
+		Text = "#FFF5FC",
+		PlaceholderText = "#D4A8C4",
+		Background = "#140A12",
+		Dialog = "#24101E",
+		Icon = "#FF9CE0",
+	})
 end)
 
 local PREFERENCES_FOLDER = "SVCLUTCHER_HUB"
@@ -7918,7 +7830,7 @@ local function ensurePreferenceTables()
 	end
 
 	if type(Preferences.Theme) ~= "string" or Preferences.Theme == "" then
-		Preferences.Theme = "Dark"
+		Preferences.Theme = "Matrix"
 	end
 
 	if type(Preferences.TeleportMenuTab) ~= "string" or Preferences.TeleportMenuTab == "" then
@@ -8047,10 +7959,7 @@ end
 
 loadPreferences()
 ensurePreferenceTables()
-Preferences.Toggles.AutoCollect = false
 Preferences.Toggles.HideUnderMap = false
-Preferences.Toggles.AutoPickup = true
-Preferences.Toggles.AutoPermanentItems = true
 queueSavePreferences()
 
 Teleport.CustomSettingDefinitions = {
@@ -8395,7 +8304,7 @@ local WindUIWindow = WindUI:CreateWindow({
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
 	Transparent = true,
-	Theme = "Matrix",
+	Theme = Preferences.Theme or "Matrix",
 	SideBarWidth = 200,
 })
 
@@ -9757,11 +9666,14 @@ local function PortedSections()
 					["Shipments"] = true,
 					["Lobby"] = true,
 					["Halloween"] = true,
-					["SoundRegions"] = true
+					["SoundRegions"] = true,
+					["Part"] = true
 				}
 
 				for _, object in ipairs(workspace:GetChildren()) do
-					if object:IsA("Folder") and not whitelist[object.Name] then
+					if object:IsA("Folder")
+						and not whitelist[object.Name]
+						and object ~= Combat.AntiSlapBoxFolder then
 						for _, child in ipairs(object:GetChildren()) do
 							child:Destroy()
 						end
@@ -10626,6 +10538,18 @@ function UI.SetInfiniteJump(state, silent)
 	end
 end
 
+local function ensureGuiFolder(folder, name)
+	if folder and folder.Parent then
+		return folder
+	end
+
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	local newFolder = Instance.new("Folder")
+	newFolder.Name = name or "Part"
+	newFolder.Parent = playerGui or game:GetService("CoreGui")
+	return newFolder
+end
+
 local ESP = {
 	Enabled = false,
 	Connections = {},
@@ -10637,14 +10561,7 @@ local ESP = {
 }
 
 function ESP.EnsureFolder()
-	if ESP.Folder and ESP.Folder.Parent then
-		return ESP.Folder
-	end
-
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	ESP.Folder = Instance.new("Folder")
-	ESP.Folder.Name = "Part"
-	ESP.Folder.Parent = playerGui or gui or game:GetService("CoreGui")
+	ESP.Folder = ensureGuiFolder(ESP.Folder, "Part")
 	return ESP.Folder
 end
 
@@ -11005,14 +10922,7 @@ function ItemESP.Clear()
 end
 
 function ItemESP.EnsureFolder()
-	if ItemESP.Folder and ItemESP.Folder.Parent then
-		return ItemESP.Folder
-	end
-
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	ItemESP.Folder = Instance.new("Folder")
-	ItemESP.Folder.Name = "Part"
-	ItemESP.Folder.Parent = playerGui or gui or game:GetService("CoreGui")
+	ItemESP.Folder = ensureGuiFolder(ItemESP.Folder, "Part")
 	return ItemESP.Folder
 end
 
@@ -11231,23 +11141,6 @@ function UI.IsJumpBusDetectionActive()
 	return not UI.JumpBusTimerSeen and now - (UI.JumpBusSearchStartedAt or 0) <= 12
 end
 
-function UI.GetBusCandidateRoot(object)
-	local current = object
-	local candidate = nil
-
-	while current and current ~= workspace do
-		local lowerName = string.lower(current.Name)
-
-		if string.find(lowerName, "bus", 1, true) and (current:IsA("Model") or current:IsA("BasePart")) then
-			candidate = current
-		end
-
-		current = current.Parent
-	end
-
-	return candidate
-end
-
 function UI.IsJumpBusCandidate(object)
 	local lowerName = string.lower(object.Name)
 	return string.find(lowerName, "bus", 1, true) ~= nil and (object:IsA("Model") or object:IsA("BasePart"))
@@ -11269,7 +11162,7 @@ function UI.GetBusCandidates(rootPosition)
 
 		if ok then
 			for _, part in ipairs(nearbyParts) do
-				local candidate = UI.GetBusCandidateRoot(part)
+				local candidate = Teleport.GetBusCandidateFromObject(part)
 
 				if candidate and not seen[candidate] then
 					seen[candidate] = true
@@ -11810,7 +11703,7 @@ local function buildItemTeleportMenuNames()
 	Items.RefreshCrates()
 
 	if #Items.Crates > 0 then
-		liveNames[Utility.NormalizeName("Meteor Crate D3T3CT3D")] = true
+		liveNames[Utility.NormalizeName("Meteor Crate")] = true
 	end
 
 	table.sort(extra, function(left, right)
@@ -11987,6 +11880,15 @@ local function isLauncherDescendant(object)
 	return MinimizedLauncher.Gui and object:IsDescendantOf(MinimizedLauncher.Gui)
 end
 
+local function isWindUITitleText(text)
+	text = tostring(text or "")
+
+	return text == "SVCLUTCHER HUB OP"
+		or text == "$VC|UTCH3R HUB》》》》"
+		or string.find(text, "SVCLUTCHER", 1, true) ~= nil
+		or string.find(text, "$VC|UTCH3R", 1, true) ~= nil
+end
+
 local function findWindUIMainWindowInfo()
 	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
 
@@ -11997,7 +11899,7 @@ local function findWindUIMainWindowInfo()
 	for _, object in ipairs(playerGui:GetDescendants()) do
 		if not isLauncherDescendant(object)
 			and (object:IsA("TextLabel") or object:IsA("TextButton"))
-			and object.Text == "$VC|UTCH3R HUB》》》》" then
+			and isWindUITitleText(object.Text) then
 			local screenGui = getScreenGuiAncestor(object)
 
 			if screenGui then
@@ -12162,6 +12064,7 @@ local function ensureMinimizedLauncher()
 	MinimizedLauncher.Gui = screenGui
 	MinimizedLauncher.Container = container
 	MinimizedLauncher.Button = container
+	registerHubGui(screenGui)
 end
 
 local function refreshMinimizedLauncher()
@@ -12190,6 +12093,7 @@ local function refreshMinimizedLauncher()
 		MinimizedLauncher.MainGui = info.ScreenGui
 		MinimizedLauncher.MainRoot = info.Root
 		MinimizedLauncher.HasSeenMainWindow = true
+		registerHubGui(info.ScreenGui)
 		local showLauncher = (info.Visible == false or info.Minimized == true) and os.clock() - MinimizedLauncher.LastClickAt > 0.4
 
 		if showLauncher then
@@ -12455,6 +12359,7 @@ local function openTeleportSideMenu()
 	TeleportMenu.LastRowsSignature = nil
 	Preferences.TeleportMenuOpen = true
 	queueSavePreferences()
+	registerHubGui(screenGui)
 	renderTeleportMenuRows()
 
 	TeleportMenu.PlayerAddedConnection = Players.PlayerAdded:Connect(function()
@@ -12665,26 +12570,30 @@ function UI.SetRecommendedSettings(state, silent)
 	task.delay(0.8, syncAllToggleVisuals)
 end
 
-local function applyTheme(themeName)
-	local ok = false
-	local applied = false
+local function applyTheme(themeName, silent)
+	themeName = tostring(themeName or "Matrix")
 
-	ok = pcall(function()
+	local ok = pcall(function()
 		if WindUIWindow and type(WindUIWindow.SetTheme) == "function" then
 			WindUIWindow:SetTheme(themeName)
-			applied = true
 		elseif WindUI and type(WindUI.SetTheme) == "function" then
 			WindUI:SetTheme(themeName)
-			applied = true
 		end
 	end)
 
-	if ok and applied then
-		Preferences.Theme = tostring(themeName or "Dark")
-		queueSavePreferences()
-		createNotification("Theme", "Theme changed to " .. tostring(themeName) .. ".", "Success")
-	elseif not applied then
-		createNotification("Theme", "This WindUI build did not expose a theme setter.", "Warning")
+	if not ok then
+		if not silent then
+			createNotification("Theme", "This WindUI build did not expose a theme setter.", "Warning")
+		end
+
+		return
+	end
+
+	Preferences.Theme = themeName
+	queueSavePreferences()
+
+	if not silent then
+		createNotification("Theme", "Theme changed to " .. themeName .. ".", "Success")
 	end
 end
 
@@ -12706,12 +12615,12 @@ AddToggle(TabMain, "mr ducks his settings", "Slap Aura, ESP, anti-ragdoll, sorti
 local _, autoCollectRef = AddToggle(TabItems, "Auto collect", "GETS ITEMS AFTER U JUMPED", false, Items.SetAutoCollect, "AutoCollect")
 Items.AutoCollectToggle = autoCollectRef
 
-local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "AUTO PICK UP ARE U DUMMY?", false, Items.SetAutoPickup, "AutoPickup")
+local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "AUTO PICK UP ARE U DUMMY?", true, Items.SetAutoPickup, "AutoPickup")
 Items.AutoPickupToggle = autoPickupRef
 
 AddToggle(TabItems, "Auto Heal", "AUTO HEAL U KNOW BRO", false, Items.SetAutoHeal, "AutoHeal")
 AddToggle(TabItems, "Auto Sort", "WELL THIS IS BETA", false, Items.SetAutoSort, "AutoSort")
-local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent ITEMS ARE U DUMB", false, Items.SetAutoPermanentItems, "AutoPermanentItems")
+local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent ITEMS ARE U DUMB", true, Items.SetAutoPermanentItems, "AutoPermanentItems")
 autoPermanentToggle = permanentRef
 
 AddButton(TabItems, "Use Spheres", "Uses all Sphere of Fury tools ARE U DUMB?", "circle", Items.UseSpheres)
@@ -12804,35 +12713,25 @@ local allThemeNames = {
 	"Midnight Purple", "Sakura", "Arctic", "Ember", "Toxic", "Phantom", "Cotton Candy",
 	"Void", "Sunset", "Matrix",
 }
-AddDropdown(TabSettings, "Theme", "Change the color theme", allThemeNames, Preferences.Theme or "Dark", applyTheme, "Theme")
+AddDropdown(TabSettings, "Theme", "Change the color theme", allThemeNames, Preferences.Theme or "Matrix", applyTheme, "Theme")
 
 task.defer(UI.SyncCustomSettingInputVisuals)
 task.delay(0.35, UI.SyncCustomSettingInputVisuals)
+
 task.defer(function()
-	Items.SetAutoCollect(false, true)
-	Items.SetAutoPickup(false, true)
-	Items.SetAutoPermanentItems(false, true)
 	Anti.SetHideUnderMap(false, true)
-
-	if UI.ToggleRefs.AutoCollect then
-		UI.ToggleRefs.AutoCollect.Set(false, false)
-	end
-
-	if UI.ToggleRefs.AutoPickup then
-		UI.ToggleRefs.AutoPickup.Set(false, false)
-	end
-
-	if UI.ToggleRefs.AutoPermanentItems then
-		UI.ToggleRefs.AutoPermanentItems.Set(false, false)
-	end
 
 	if UI.ToggleRefs.HideUnderMap then
 		UI.ToggleRefs.HideUnderMap.Set(false, false)
 	end
 end)
+
 task.defer(syncAllToggleVisuals)
 task.delay(0.35, syncAllToggleVisuals)
 task.delay(1, syncAllToggleVisuals)
+task.defer(function()
+	applyTheme(Preferences.Theme, true)
+end)
 
 if Preferences.TeleportMenuOpen then
 	task.defer(openTeleportSideMenu)
