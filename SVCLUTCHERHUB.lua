@@ -7833,7 +7833,7 @@ end)
 -- New WindUI control layer.
 pcall(function()
 	WindUI:AddTheme({
-		Name = "Neon Orchid",
+		Name = "Neon SVCLUTCH",
 		Toggle = "#33C759",
 		Accent = "#CC33FF",
 		Outline = "#FF66DD",
@@ -7844,7 +7844,7 @@ pcall(function()
 		Icon = "#FF99DD",
 	})
 	WindUI:AddTheme({
-		Name = "Void",
+		Name = "EMPTY BASH",
 		Toggle = "#33C759",
 		Accent = "#6644CC",
 		Outline = "#8866EE",
@@ -7855,7 +7855,7 @@ pcall(function()
 		Icon = "#6644CC",
 	})
 	WindUI:AddTheme({
-		Name = "Sunset",
+		Name = "SUN RISES",
 		Toggle = "#33C759",
 		Accent = "#FF6B35",
 		Outline = "#FF9966",
@@ -8048,13 +8048,13 @@ queueSavePreferences()
 Teleport.CustomSettingDefinitions = {
 	CustomStrikes = {
 		Default = Teleport.DefaultMaxStrikes,
-		Min = 1,
+		Min = 3,
 		Max = 50,
 		Integer = true,
 	},
 	CustomTPDebounce = {
 		Default = Teleport.DefaultDebounce,
-		Min = 0,
+		Min = 0,2
 		Max = 7,
 	},
 	CustomFLock = {
@@ -8308,9 +8308,9 @@ function Teleport.GetOptimizedCooldownSettingsForPing(ping)
 
 	if ping <= 80 then
 		return {
-			FLock = 0.1,
-			TPDebounce = 0.1,
-			MaxStrikes = 10,
+			FLock = 0.2,
+			TPDebounce = 0.5,
+			MaxStrikes = 4,
 		}
 	elseif ping <= 130 then
 		return {
@@ -8375,14 +8375,14 @@ function Teleport.RunAutoOptimizeCooldownSettings(silent)
 	end)
 
 	if not silent then
-		createNotification("Cooldown settings", "Checking ping and optimizing settings.", "Info")
+		createNotification("Cooldown settings", "CHECK PING AND MAKE SURE UR DEVICE DONT TRASHESs.", "Info")
 	end
 end
 
 local WindUIWindow = WindUI:CreateWindow({
-	Title = "SVCLUTCHER HUB OP",
+	Title = "♧◇♡《《《SVCLUTCHER HUB》》》♧◇♡",
 	Icon = "terminal",
-	Author = "sub 2 svclutcher",
+	Author = "♡♡sub 2 svclutcher♡♡",
 	Folder = "SVCLUTCHER_HUB",
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
@@ -8391,13 +8391,13 @@ local WindUIWindow = WindUI:CreateWindow({
 	SideBarWidth = 200,
 })
 
-local TabMain = WindUIWindow:Tab({ Title = "MAIN T3RM!N@L", Icon = "terminal" })
-local TabItems = WindUIWindow:Tab({ Title = "ITEMS=COLLECT", Icon = "box" })
-local TabTeleports = WindUIWindow:Tab({ Title = "GOTO_FUNC", Icon = "map-pin" })
-local TabCombat = WindUIWindow:Tab({ Title = "C0MB@T=FUNC", Icon = "swords" })
-local TabBETA = WindUIWindow:Tab({ Title = "FIXED_BETA=OPFUNC", Icon = "bug" })
-local TabSafety = WindUIWindow:Tab({ Title = "SECURITY", Icon = "shield" })
-local TabSettings = WindUIWindow:Tab({ Title = "=SETTINGS", Icon = "wrench" })
+local TabMain = WindUIWindow:Tab({ Title = "☆《《MAIN T3RM!N@L》》☆", Icon = "terminal" })
+local TabItems = WindUIWindow:Tab({ Title = "《《ITEMS=COLLECT》》", Icon = "box" })
+local TabTeleports = WindUIWindow:Tab({ Title = "《《GOTO_FUNC》》", Icon = "map-pin" })
+local TabCombat = WindUIWindow:Tab({ Title = "《《C0MB@T=FUNC》》", Icon = "swords" })
+local TabBETA = WindUIWindow:Tab({ Title = "《《FIXED_BETA=OPFUNC》》", Icon = "bug" })
+local TabSafety = WindUIWindow:Tab({ Title = "☆《《SECURITY》》☆", Icon = "shield" })
+local TabSettings = WindUIWindow:Tab({ Title = "《《MENUC0NF1G》》", Icon = "wrench" })
 
 local _windToggles = {}
 local _windSliders = {}
