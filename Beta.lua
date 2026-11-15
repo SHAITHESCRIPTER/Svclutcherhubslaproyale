@@ -7632,7 +7632,7 @@ end)
 -- New WindUI control layer.
 pcall(function()
 	WindUI:AddTheme({
-		Name = "Neon Orchid",
+		Name = "《《Neon Orchid》》",
 		Toggle = "#33C759",
 		Accent = "#CC33FF",
 		Outline = "#FF66DD",
@@ -7643,7 +7643,7 @@ pcall(function()
 		Icon = "#FF99DD",
 	})
 	WindUI:AddTheme({
-		Name = "Void",
+		Name = "《《¿?¿?》》",
 		Toggle = "#33C759",
 		Accent = "#6644CC",
 		Outline = "#8866EE",
@@ -7654,7 +7654,7 @@ pcall(function()
 		Icon = "#6644CC",
 	})
 	WindUI:AddTheme({
-		Name = "Sunset",
+		Name = "☆☆☆☆",
 		Toggle = "#33C759",
 		Accent = "#FF6B35",
 		Outline = "#FF9966",
@@ -7676,7 +7676,7 @@ pcall(function()
 		Icon = "#00FF41",
 	})
 	WindUI:AddTheme({
-		Name = "Cyber Lime",
+		Name = "《《Cyber Lime》》",
 		Toggle = "#33C759",
 		Accent = "#B6FF00",
 		Outline = "#D4FF66",
@@ -7687,84 +7687,7 @@ pcall(function()
 		Icon = "#B6FF00",
 	})
 	WindUI:AddTheme({
-		Name = "Solar Flare",
-		Toggle = "#33C759",
-		Accent = "#FFB000",
-		Outline = "#FFD166",
-		Text = "#FFF8E6",
-		PlaceholderText = "#D4B477",
-		Background = "#140F00",
-		Dialog = "#241A00",
-		Icon = "#FFB000",
-	})
-	WindUI:AddTheme({
-		Name = "Ocean Sync",
-		Toggle = "#33C759",
-		Accent = "#00B4D8",
-		Outline = "#66D9F0",
-		Text = "#E6FBFF",
-		PlaceholderText = "#77C4D4",
-		Background = "#000C14",
-		Dialog = "#001824",
-		Icon = "#00B4D8",
-	})
-	WindUI:AddTheme({
-		Name = "Rose Terminal",
-		Toggle = "#33C759",
-		Accent = "#FF4D94",
-		Outline = "#FF8FB8",
-		Text = "#FFF0F6",
-		PlaceholderText = "#D488A8",
-		Background = "#14040A",
-		Dialog = "#240A14",
-		Icon = "#FF4D94",
-	})
-	WindUI:AddTheme({
-		Name = "Midnight Purple",
-		Toggle = "#33C759",
-		Accent = "#7B2CBF",
-		Outline = "#A96BEA",
-		Text = "#F2EAFF",
-		PlaceholderText = "#A888CC",
-		Background = "#0A0414",
-		Dialog = "#140A24",
-		Icon = "#7B2CBF",
-	})
-	WindUI:AddTheme({
-		Name = "Sakura",
-		Toggle = "#33C759",
-		Accent = "#FFB3C6",
-		Outline = "#FFD6E0",
-		Text = "#FFF5F7",
-		PlaceholderText = "#D4A8B4",
-		Background = "#140A0D",
-		Dialog = "#241016",
-		Icon = "#FFB3C6",
-	})
-	WindUI:AddTheme({
-		Name = "Arctic",
-		Toggle = "#33C759",
-		Accent = "#8ED4FF",
-		Outline = "#C2E9FF",
-		Text = "#F2FBFF",
-		PlaceholderText = "#8FB4C6",
-		Background = "#040A10",
-		Dialog = "#0A141C",
-		Icon = "#8ED4FF",
-	})
-	WindUI:AddTheme({
-		Name = "Ember",
-		Toggle = "#33C759",
-		Accent = "#E03E1A",
-		Outline = "#FF7A55",
-		Text = "#FFF2ED",
-		PlaceholderText = "#D4907A",
-		Background = "#140704",
-		Dialog = "#240D08",
-		Icon = "#E03E1A",
-	})
-	WindUI:AddTheme({
-		Name = "Toxic",
+		Name = "《《OPTIMISED TERMINAL》》",
 		Toggle = "#33C759",
 		Accent = "#39FF14",
 		Outline = "#7CFF66",
@@ -7773,28 +7696,6 @@ pcall(function()
 		Background = "#020A02",
 		Dialog = "#041404",
 		Icon = "#39FF14",
-	})
-	WindUI:AddTheme({
-		Name = "Phantom",
-		Toggle = "#33C759",
-		Accent = "#9AA5B1",
-		Outline = "#C7CFD6",
-		Text = "#F7F9FA",
-		PlaceholderText = "#9AA5B1",
-		Background = "#07090A",
-		Dialog = "#0F1315",
-		Icon = "#9AA5B1",
-	})
-	WindUI:AddTheme({
-		Name = "Cotton Candy",
-		Toggle = "#33C759",
-		Accent = "#FF9CE0",
-		Outline = "#FFC2EE",
-		Text = "#FFF5FC",
-		PlaceholderText = "#D4A8C4",
-		Background = "#140A12",
-		Dialog = "#24101E",
-		Icon = "#FF9CE0",
 	})
 end)
 
@@ -8225,9 +8126,9 @@ function Teleport.GetOptimizedCooldownSettingsForPing(ping)
 
 	if ping <= 80 then
 		return {
-			FLock = 0.1,
-			TPDebounce = 0.1,
-			MaxStrikes = 10,
+			FLock = 0.2,
+			TPDebounce = 0.5,
+			MaxStrikes = 4,
 		}
 	elseif ping <= 130 then
 		return {
@@ -8297,7 +8198,7 @@ function Teleport.RunAutoOptimizeCooldownSettings(silent)
 end
 
 local WindUIWindow = WindUI:CreateWindow({
-	Title = "SVCLUTCHER HUB OP",
+	Title = "♡☆《《SVCLUTCHER_HUB》》☆♡",
 	Icon = "terminal",
 	Author = "sub 2 svclutcher",
 	Folder = "SVCLUTCHER_HUB",
@@ -8308,13 +8209,13 @@ local WindUIWindow = WindUI:CreateWindow({
 	SideBarWidth = 200,
 })
 
-local TabMain = WindUIWindow:Tab({ Title = "MAIN T3RM!N@L", Icon = "terminal" })
-local TabItems = WindUIWindow:Tab({ Title = "ITEMS=COLLECT", Icon = "box" })
-local TabTeleports = WindUIWindow:Tab({ Title = "GOTO_FUNC", Icon = "map-pin" })
-local TabCombat = WindUIWindow:Tab({ Title = "C0MB@T=FUNC", Icon = "swords" })
-local TabBETA = WindUIWindow:Tab({ Title = "FIXED_BETA=OPFUNC", Icon = "bug" })
-local TabSafety = WindUIWindow:Tab({ Title = "SECURITY", Icon = "shield" })
-local TabSettings = WindUIWindow:Tab({ Title = "=SETTINGS", Icon = "wrench" })
+local TabMain = WindUIWindow:Tab({ Title = "☆《《MAIN T3RM!N@L》》☆", Icon = "terminal" })
+local TabItems = WindUIWindow:Tab({ Title = "《《ITEMS=COLLECT》》", Icon = "box" })
+local TabTeleports = WindUIWindow:Tab({ Title = "《《GOTO_FUNC》》", Icon = "map-pin" })
+local TabCombat = WindUIWindow:Tab({ Title = "《《C0MB@T=FUNC》》", Icon = "swords" })
+local TabBETA = WindUIWindow:Tab({ Title = "《FIXED_BETA=OPFUNC》", Icon = "bug" })
+local TabSafety = WindUIWindow:Tab({ Title = "《《SECURITY》》", Icon = "shield" })
+local TabSettings = WindUIWindow:Tab({ Title = "《《SETTINGS》》", Icon = "wrench" })
 
 local _windToggles = {}
 local _windSliders = {}
