@@ -8200,7 +8200,7 @@ end
 local WindUIWindow = WindUI:CreateWindow({
 	Title = "♡☆《《SVCLUTCHER_HUB》》☆♡",
 	Icon = "terminal",
-	Author = "sub 2 svclutcher",
+	Author = "CREDITS TO PUMPKIN HUB FOR THE NEW FEATURES",
 	Folder = "SVCLUTCHER_HUB",
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
