@@ -52,6 +52,19 @@ Migration map:
 
 Internal helper functions from the non-UI script are preserved and are not exposed as UI controls.
 Old no-op callbacks were not carried over.
+
+BUGFIX BUILD:
+- Startup no longer teleports you onto the lobby roof, and no longer trips the
+  game's own respawn snap-back. The under-map return only runs when you are
+  actually under the map, and only after the character is loaded and settled.
+- Ground return raycast walks down from above and picks the LOWEST surface
+  above you instead of the first hit (which used to be the lobby ceiling).
+- Teleport.MoveRoot holds zero velocity across frames and forces the Running
+  humanoid state so the server sees one clean move, not a fall spike.
+- Added a global 0.28s minimum interval and a fast-fall gate in CanTeleport.
+- Auto collect waits for the character to settle between every hop.
+- Get all items uses direct CFrame instead of a TweenService tween, skips items
+  that are already picked up, and no longer stalls 2 seconds per item.
 ]]
 
 local Services = {
@@ -282,6 +295,7 @@ Teleport.DefaultCooldown = 5.0
 
 Teleport.DefaultDebounce = 0.5
 Teleport.DefaultPostFLock = 0.2
+Teleport.MinTeleportInterval = 0.28
 Teleport.MaxStrikes = Teleport.DefaultMaxStrikes
 Teleport.Cooldown = Teleport.DefaultCooldown
 Teleport.Debounce = Teleport.DefaultDebounce
@@ -289,6 +303,7 @@ Teleport.PostFLock = Teleport.DefaultPostFLock
 Teleport.Strikes = 0
 Teleport.LockedUntil = 0
 Teleport.LastClickAt = 0
+Teleport.LastMoveAt = 0
 Teleport.BlockFUntil = 0
 Teleport.BusTopRidePlatform = nil
 Teleport.BusTopRideConnection = nil
@@ -1032,6 +1047,32 @@ function Teleport.CanTeleport(debounceOverride, ignoreStability, silent)
 		return false
 	end
 
+	-- hard rate limit: one move per MinTeleportInterval keeps the server happy
+	local minInterval = Teleport.MinTeleportInterval or 0.28
+	local sinceMove = os.clock() - (Teleport.LastMoveAt or 0)
+
+	if sinceMove < minInterval then
+		if not silent then
+			Teleport.ShowWarning(string.format("%.1f", minInterval - sinceMove))
+		end
+		return false
+	end
+
+	-- never move mid-fall, the velocity spike reads as a bad teleport
+	local moveCharacter = player.Character
+	local moveRoot = moveCharacter and moveCharacter:FindFirstChild("HumanoidRootPart")
+
+	if moveRoot then
+		local velocity = moveRoot.AssemblyLinearVelocity
+
+		if velocity.Y < -95 or velocity.Magnitude > 200 then
+			if not silent then
+				Teleport.ShowStabilityWarning("Slow down before teleporting dummy.", 0.4)
+			end
+			return false
+		end
+	end
+
 	local now = os.clock()
 	local debounce = tonumber(debounceOverride or Teleport.Debounce) or 0
 	local lastClickAt = tonumber(Teleport.LastClickAt) or 0
@@ -1052,6 +1093,7 @@ Teleport.StartStabilityWatcher()
 
 function Teleport.AddStrike()
 	Teleport.LastClickAt = os.clock()
+	Teleport.LastMoveAt = os.clock()
 	Teleport.Strikes += 1
 
 	if Teleport.Strikes >= Teleport.MaxStrikes then
@@ -1062,6 +1104,7 @@ end
 
 function Teleport.AddFixedStrike(maxStrikes, cooldown)
 	Teleport.LastClickAt = os.clock()
+	Teleport.LastMoveAt = os.clock()
 	Teleport.Strikes += 1
 
 	if Teleport.Strikes >= (maxStrikes or Teleport.DefaultMaxStrikes) then
@@ -1142,7 +1185,42 @@ function Teleport.ShowFBlockedWarning()
 	)
 end
 
+function Teleport.WaitForSettle(maxWait)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local deadline = os.clock() + (maxWait or 0.2)
+
+	while os.clock() < deadline do
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+
+		if not root or not root.Parent then
+			return
+		end
+
+		if humanoid then
+			local state = humanoid:GetState()
+
+			if state == Enum.HumanoidStateType.Running
+				or state == Enum.HumanoidStateType.RunningNoPhysics
+				or state == Enum.HumanoidStateType.Landed
+				or state == Enum.HumanoidStateType.Seated
+			then
+				break
+			end
+		end
+
+		task.wait(0.02)
+	end
+end
+
 function Teleport.MoveRoot(root, targetCFrame, lookAtPosition)
+	if not root or not root.Parent then
+		return
+	end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
@@ -1160,10 +1238,28 @@ function Teleport.MoveRoot(root, targetCFrame, lookAtPosition)
 		root.CFrame = CFrame.new(targetCFrame.Position) * CFrame.Angles(0, yRotation, 0)
 	end
 
+	-- force a clean standing state so the server does not read the move as a fall
+	if humanoid then
+		humanoid.PlatformStand = false
+		humanoid.Sit = false
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end)
+	end
+
 	task.wait()
 
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
+	if root.Parent then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+
+	task.wait()
+
+	if root.Parent then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
 end
 
 function Teleport.StabilizeItemView(root, itemPart)
@@ -4522,6 +4618,7 @@ function Items.RunPriorityAutoCollect(mode)
 
 			Teleport.MoveRoot(root, groundCFrame, itemPart.Position)
 			Teleport.StabilizeItemView(root, itemPart)
+			Teleport.WaitForSettle(0.2)
 			Teleport.AddStrike()
 			Teleport.StartFBlock()
 			createNotification(title, "Collected " .. itemName)
@@ -7499,14 +7596,48 @@ function Anti.GetGroundReturnCFrame(root)
 
 	params.FilterDescendantsInstances = excludeInstances
 
-	local origin = Vector3.new(returnX, 320, returnZ)
-	local result = workspace:Raycast(origin, Vector3.new(0, -520, 0), params)
+	-- walk down from way above the map and keep the LOWEST solid surface that is
+	-- above the player. Casting straight down from one high point used to hit the
+	-- lobby ceiling first, which dropped you on the roof.
+	local surfaceY = nil
+	local probeY = 400
+	local blocked = {}
 
-	if result and result.Position.Y > -80 and result.Position.Y < 260 then
-		return CFrame.new(returnX, result.Position.Y + UNDER_MAP_SAFE_OFFSET, returnZ)
+	for _ = 1, 10 do
+		local probeParams = RaycastParams.new()
+		probeParams.FilterType = Enum.RaycastFilterType.Exclude
+		local probeIgnore = {}
+
+		for _, ignoredInstance in ipairs(params.FilterDescendantsInstances) do
+			table.insert(probeIgnore, ignoredInstance)
+		end
+
+		for _, blockedInstance in ipairs(blocked) do
+			table.insert(probeIgnore, blockedInstance)
+		end
+
+		probeParams.FilterDescendantsInstances = probeIgnore
+
+		local hit = workspace:Raycast(Vector3.new(returnX, probeY, returnZ), Vector3.new(0, -(probeY + 250), 0), probeParams)
+
+		if not hit then
+			break
+		end
+
+		if hit.Position.Y <= root.Position.Y + 2 then
+			break
+		end
+
+		surfaceY = hit.Position.Y
+		table.insert(blocked, hit.Instance)
+		probeY = hit.Position.Y - 0.5
 	end
 
-	return CFrame.new(returnX, 30 + UNDER_MAP_SAFE_OFFSET, returnZ)
+	if surfaceY then
+		return CFrame.new(returnX, surfaceY + UNDER_MAP_SAFE_OFFSET, returnZ)
+	end
+
+	return CFrame.new(returnX, root.Position.Y + UNDER_MAP_SAFE_OFFSET, returnZ)
 end
 
 function Anti.SetHideUnderMap(state, silent)
@@ -7517,6 +7648,23 @@ function Anti.SetHideUnderMap(state, silent)
 			createNotification("Hide under map", "Could not find your character.", "Error")
 		end
 		return
+	end
+
+	-- already standing on real ground: do not touch CFrame, the game's own
+	-- respawn system snaps you back and it looks like the script broke
+	if not state and not Anti.HideUnderMapEnabled then
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		local belowMap = root.Position.Y < (UNDER_MAP_PLATFORM_Y + 10)
+
+		if not belowMap and humanoid and humanoid.Health > 0 then
+			Anti.HideUnderMapEnabled = false
+
+			if not silent then
+				createNotification("Hide under map", "Already above ground.", "Info")
+			end
+
+			return
+		end
 	end
 
 	if state and movementSave then
@@ -9425,6 +9573,12 @@ local function PortedSections()
 				local handle = tool:FindFirstChild("Handle")
 
 				if handle and handle:IsA("BasePart") then
+					local itemGui = handle:FindFirstChild("ItemGui")
+
+					if itemGui and itemGui:IsA("GuiObject") and not itemGui.Enabled then
+						continue
+					end
+
 					local distance = (handle.Position - root.Position).Magnitude
 
 					if distance < closestDistance then
@@ -9443,32 +9597,35 @@ local function PortedSections()
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local handle = tool and tool:FindFirstChild("Handle")
 
-		if not root or not handle then
+		if not root or not root.Parent or not handle or not handle.Parent then
 			return false
 		end
 
-		local tween = TweenService:Create(root, TweenInfo.new(0.1, Enum.EasingStyle.Linear), {
-			CFrame = CFrame.new(handle.Position + Vector3.new(2, 0, 0), handle.Position),
-		})
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-		tween:Play()
-		local finished = false
+		-- direct CFrame beats a tween here: a tween fights network ownership and
+		-- the server flags it as a teleport regardless
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		root.CFrame = CFrame.new(handle.Position + Vector3.new(2, 0, 0), handle.Position)
 
-		local connection = tween.Completed:Connect(function()
-			finished = true
-		end)
-
-		while not finished do
-			if not Items.GetAllItemsEnabled or not tool.Parent then
-				tween:Cancel()
-				connection:Disconnect()
-				return false
-			end
-
-			task.wait()
+		if humanoid then
+			pcall(function()
+				humanoid:ChangeState(Enum.HumanoidStateType.Running)
+			end)
 		end
 
-		connection:Disconnect()
+		task.wait(0.05)
+
+		if not Items.GetAllItemsEnabled or not tool.Parent then
+			return false
+		end
+
+		if root.Parent then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+
 		return true
 	end
 
@@ -9513,12 +9670,13 @@ local function PortedSections()
 							local tool = FindClosestGetAllTool()
 
 							if tool and TweenToGetAllTool(tool) then
-								task.wait(0.2)
+								task.wait(0.08)
 
 								if Items.GetAllItemsEnabled and tool.Parent then
 									GetAllPickup(tool)
-									task.wait(2)
 								end
+
+								task.wait(0.3)
 							else
 								task.wait(0.1)
 							end
@@ -12619,11 +12777,46 @@ AddDropdown(TabSettings, "Theme", "Change the color theme", allThemeNames, Prefe
 task.defer(UI.SyncCustomSettingInputVisuals)
 task.delay(0.35, UI.SyncCustomSettingInputVisuals)
 
+-- startup ground handling: wait until the character is really spawned and
+-- standing still, then only move if we are actually below the map. This is the
+-- part that used to drop you on the lobby roof and make the game respawn you.
 task.defer(function()
-	Anti.SetHideUnderMap(false, true)
+	if not game:IsLoaded() then
+		game.Loaded:Wait()
+	end
+
+	local deadline = os.clock() + 20
+
+	while os.clock() < deadline do
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+
+		if root and humanoid and humanoid.Health > 0 then
+			local state = humanoid:GetState()
+
+			if state == Enum.HumanoidStateType.Running
+				or state == Enum.HumanoidStateType.RunningNoPhysics
+				or state == Enum.HumanoidStateType.Landed
+			then
+				break
+			end
+		end
+
+		task.wait(0.1)
+	end
+
+	task.wait(0.5)
 
 	if UI.ToggleRefs.HideUnderMap then
 		UI.ToggleRefs.HideUnderMap.Set(false, false)
+	end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+
+	if root and root.Position.Y < (UNDER_MAP_PLATFORM_Y + 10) then
+		Anti.SetHideUnderMap(false, true)
 	end
 end)
 
