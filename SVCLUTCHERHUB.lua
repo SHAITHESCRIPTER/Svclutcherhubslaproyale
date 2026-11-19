@@ -1,5 +1,5 @@
 --[[
-OP svclutcher script 
+OP svclutcher script
 
 Migration map:
 - Main tab:
@@ -52,11 +52,6 @@ Migration map:
 
 Internal helper functions from the non-UI script are preserved and are not exposed as UI controls.
 Old no-op callbacks were not carried over.
-]]
-
---[[
-UI-stripped version. Visual UI/tabs/dropdowns/toggles/notifications were removed.
-Only non-UI runtime tables/functions from the supplied script were kept where possible.
 ]]
 
 local Services = {
@@ -218,6 +213,48 @@ local UI = {
 }
 
 local gui = nil
+local HubGuiObjects = {}
+
+local function registerHubGui(object)
+	if not object then
+		return
+	end
+
+	gui = object
+
+	if not HubGuiObjects[object] then
+		HubGuiObjects[object] = true
+
+		if object.Destroying then
+			object.Destroying:Connect(function()
+				HubGuiObjects[object] = nil
+
+				if gui == object then
+					gui = nil
+				end
+			end)
+		end
+	end
+end
+
+local function isHubGuiObject(object)
+	if not object then
+		return false
+	end
+
+	if gui and gui.Parent and (object == gui or object:IsDescendantOf(gui)) then
+		return true
+	end
+
+	for hubGui in pairs(HubGuiObjects) do
+		if hubGui.Parent and (object == hubGui or object:IsDescendantOf(hubGui)) then
+			return true
+		end
+	end
+
+	return false
+end
+
 local isTouchDevice = UserInputService.TouchEnabled
 local function getViewportSize()
 	local camera = workspace.CurrentCamera
@@ -305,9 +342,8 @@ Items.CrateWatcherRoot = nil
 Items.CrateWatcherStarting = false
 Items.CrateCollectPart = nil
 Items.CollectCratesBusy = false
-Items.CollectCratesSlapInterval = 0.025
+Items.CollectCratesSlapInterval = 0.06
 Items.CrateCollectSlaps = 8
-Items.CrateCollectSlapInterval = 0.12
 Items.FastCollectCratesEnabled = false
 Items.FastCollectCratesThread = nil
 Items.FastCollectCratesInterval = 0.08
@@ -315,7 +351,6 @@ Items.FastCollectCratesLastScan = 0
 Items.FastCollectCratesScanInterval = 1.5
 Items.FastCollectCratesBox = nil
 Items.FastCollectCratesBoxSize = Vector3.new(20, 20, 20)
-Items.FastCollectCratesOverlapParams = nil
 Items.FastCollectCratesLastNearbyScan = 0
 Items.FastCollectCratesNearbyScanInterval = 0.35
 Items.FastCollectCratesNearbyCache = {}
@@ -498,7 +533,6 @@ function Main.GetPuzzleCode()
 		end
 	end
 
-print("CODE:", code)
 	return code
 end
 
@@ -812,38 +846,6 @@ function Main.FindSlapRoyaleTimer()
 	Main.TimerCachedObject = bestObject
 	Main.TimerCachedNumber = bestNumber
 	return bestNumber, bestObject
-end
-
-function Main.StartSlapRoyaleTimerPrinter()
-	if Main.TimerPrinterRunning then
-		return
-	end
-
-	Main.TimerPrinterRunning = true
-	Main.TimerPrinterLastNumber = nil
-
-	task.spawn(function()
-		while Main.TimerPrinterRunning do
-			local number = Main.FindSlapRoyaleTimer()
-
-			if number then
-				if not Main.TimerPrinterLastNumber or number < Main.TimerPrinterLastNumber then
-					Main.TimerPrinterLastNumber = number
-
-					if number <= 0 then
-						Main.TimerPrinterRunning = false
-						break
-					end
-				elseif number > Main.TimerPrinterLastNumber then
-					Main.TimerPrinterLastNumber = number
-				end
-			end
-
-			task.wait(0.25)
-		end
-
-		Main.TimerPrinterRunning = false
-	end)
 end
 
 function Teleport.GetCooldownLeft()
@@ -1462,10 +1464,6 @@ function Teleport.GetItemCFrame(itemPart, excludeInstances)
 	return CFrame.new(position + Vector3.new(0, 4, 0))
 end
 
-function Teleport.CreateMarker(position)
-	return nil
-end
-
 function Teleport.ToLocation(locationName, position, forceTeleport)
 	if forceTeleport then
 		Teleport.LockedUntil = 0
@@ -1502,9 +1500,6 @@ function Teleport.ToLocation(locationName, position, forceTeleport)
 	end
 
 	local groundCFrame = Teleport.GetGroundCFrame(position, { character })
-	local distance = (root.Position - groundCFrame.Position).Magnitude
-
-	print("[TELEPORT DEBUG]", locationName, "distance:", math.floor(distance), "target:", groundCFrame.Position)
 
 	Teleport.MoveRoot(root, groundCFrame)
 
@@ -2023,6 +2018,39 @@ function Items.TeleportTo(itemName)
 	createNotification("Items", "Teleported to " .. itemName)
 end
 
+local movementSave = nil
+
+local function setMovementPaused(paused)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	if not humanoid then
+		return
+	end
+
+	if paused then
+		if not movementSave then
+			movementSave = {
+				WalkSpeed = humanoid.WalkSpeed,
+				JumpPower = humanoid.JumpPower,
+				JumpHeight = humanoid.JumpHeight,
+				AutoRotate = humanoid.AutoRotate
+			}
+		end
+
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+		humanoid.AutoRotate = false
+	elseif movementSave then
+		humanoid.WalkSpeed = movementSave.WalkSpeed
+		humanoid.JumpPower = movementSave.JumpPower
+		humanoid.JumpHeight = movementSave.JumpHeight
+		humanoid.AutoRotate = movementSave.AutoRotate
+		movementSave = nil
+	end
+end
+
 function Items.GetCratePart(crate)
 	if not crate or not crate.Parent or not crate:IsDescendantOf(workspace) then
 		return nil
@@ -2054,61 +2082,11 @@ function Items.GetCratePart(crate)
 	return part
 end
 
-function Items.IsKnownNonCrateItemName(text)
-	local normalizedName = Utility.NormalizeName(text)
-	local knownNames = {
-		"Apple", "Bandage", "Boba", "Bomb", "Bombs", "Bull's Essence",
-		"Cube of Ice", "First Aid Kit", "Forcefield Crystal", "Frog Potion",
-		"Gravitation Shard", "Healing Potion", "Lightning Potion",
-		"Potion of Strength", "Speed Potion", "Sphere of Fury",
-		"Tomahawk", "True Power"
-	}
-
-	for _, itemName in ipairs(knownNames) do
-		if normalizedName == Utility.NormalizeName(itemName) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Items.NameLooksLikeCrate(text)
-	local normalizedName = Utility.NormalizeName(text)
-
-	return string.find(normalizedName, "crate")
-		or string.find(normalizedName, "chest")
-		or string.find(normalizedName, "meteor")
-		or string.find(normalizedName, "loot")
-		or string.find(normalizedName, "supply")
-		or string.find(normalizedName, "drop")
-		or string.find(normalizedName, "box")
-end
-
 function Items.GetShipmentCratesRoot()
 	local shipments = workspace:FindFirstChild("Shipments")
 	local crates = shipments and shipments:FindFirstChild("Crates")
 
 	return crates
-end
-
-function Items.IsShipmentCrateObject(object)
-	local cratesRoot = Items.GetShipmentCratesRoot()
-
-	if not cratesRoot or not object or not object:IsDescendantOf(cratesRoot) then
-		return false
-	end
-
-	local current = object
-	while current and current ~= cratesRoot do
-		if current.Name == "Crate" and Items.GetCratePart(current) then
-			return true
-		end
-
-		current = current.Parent
-	end
-
-	return false
 end
 
 function Items.GetShipmentCrates()
@@ -2126,28 +2104,6 @@ function Items.GetShipmentCrates()
 	end
 
 	return crates
-end
-
-function Items.GetTopItemObject(object)
-	local root = Items.GetSearchRoot()
-
-	if not root or not object or not object:IsDescendantOf(root) then
-		return nil, root
-	end
-
-	local current = object
-	local topItem = object
-
-	while current and current ~= root do
-		topItem = current
-		current = current.Parent
-	end
-
-	return topItem, root
-end
-
-function Items.IsCrateCandidate(object)
-	return Items.IsShipmentCrateObject(object)
 end
 
 function Items.GetCrateRoot(object)
@@ -2314,19 +2270,6 @@ function Items.IsCratePartInFastCollectBox(cratePart, root)
 	return math.abs(relativePosition.X) <= halfSize.X
 		and math.abs(relativePosition.Y) <= halfSize.Y
 		and math.abs(relativePosition.Z) <= halfSize.Z
-end
-
-function Items.GetFastCollectOverlapParams()
-	if Items.FastCollectCratesOverlapParams then
-		return Items.FastCollectCratesOverlapParams
-	end
-
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.RespectCanCollide = false
-	Items.FastCollectCratesOverlapParams = params
-
-	return params
 end
 
 function Items.GetNearbyCrateParts(root)
@@ -2801,9 +2744,7 @@ function Items.CollectSingleCrate(crate, alreadyTeleported)
 			break
 		end
 
-		if setMovementPaused then
-			setMovementPaused(true)
-		end
+		setMovementPaused(true)
 
 		local part = Items.GetCratePart(crate)
 
@@ -2829,82 +2770,79 @@ function Items.CollectCrates()
 
 	Items.CollectCratesBusy = true
 	Items.StartCrateWatcher()
-
-	if setMovementPaused then
-		setMovementPaused(true)
-	end
+	setMovementPaused(true)
 
 	task.spawn(function()
-		local targets = Items.GetCrateCollectTargets()
+		local ok, err = pcall(function()
+			local targets = Items.GetCrateCollectTargets()
 
-		if #targets == 0 then
-			createNotification("Collect Crates", "No crates found.", "Warning")
-			Items.CollectCratesBusy = false
-			if setMovementPaused then
-				setMovementPaused(false)
+			if #targets == 0 then
+				createNotification("Collect Crates", "No crates found.", "Warning")
+				return
 			end
-			Items.ClearCrateCollectPart()
-			return
-		end
 
-		local crateCount = math.max(#targets, Items.CountShipmentCrates())
-		local currentCrate = nil
-		createNotification("Collect Crates", "Collecting " .. tostring(crateCount) .. " crate(s).", "Info")
+			local crateCount = math.max(#targets, Items.CountShipmentCrates())
+			local currentCrate = nil
+			createNotification("Collect Crates", "Collecting " .. tostring(crateCount) .. " crate(s).", "Info")
 
-		local function moveToCrate(crate)
-			if not crate or not crate.Parent or not Items.GetCratePart(crate) then
+			local function moveToCrate(crate)
+				if not crate or not crate.Parent or not Items.GetCratePart(crate) then
+					return false
+				end
+
+				if Items.TeleportUnderCrate(crate) then
+					currentCrate = crate
+					return true
+				end
+
 				return false
 			end
 
-			if Items.TeleportUnderCrate(crate) then
-				currentCrate = crate
-				return true
-			end
+			local firstReady = Items.GetReadyCrateTarget()
+			moveToCrate(firstReady or Items.GetFirstLiveCrateTarget())
 
-			return false
-		end
-
-		local firstReady = Items.GetReadyCrateTarget()
-		moveToCrate(firstReady or Items.GetFirstLiveCrateTarget())
-
-		while Items.CollectCratesBusy do
-			if setMovementPaused then
+			while Items.CollectCratesBusy do
 				setMovementPaused(true)
-			end
 
-			if currentCrate and Items.IsCrateUsedUp(currentCrate) then
-				currentCrate = nil
-			end
-
-			if not currentCrate then
-				local readyCrate, liveCount = Items.GetReadyCrateTarget()
-
-				if liveCount <= 0 then
-					break
+				if currentCrate and Items.IsCrateUsedUp(currentCrate) then
+					currentCrate = nil
 				end
 
-				moveToCrate(readyCrate or Items.GetFirstLiveCrateTarget())
-			elseif not Items.CrateHasActiveFire(currentCrate) then
-				Items.CollectSingleCrate(currentCrate, true)
-				currentCrate = nil
-			else
-				local readyCrate = Items.GetReadyCrateTarget()
+				if not currentCrate then
+					local readyCrate, liveCount = Items.GetReadyCrateTarget()
 
-				if readyCrate and readyCrate ~= currentCrate then
-					moveToCrate(readyCrate)
+					if liveCount <= 0 then
+						break
+					end
+
+					moveToCrate(readyCrate or Items.GetFirstLiveCrateTarget())
+				elseif not Items.CrateHasActiveFire(currentCrate) then
+					Items.CollectSingleCrate(currentCrate, true)
+					currentCrate = nil
 				else
-					task.wait(0.1)
+					local readyCrate = Items.GetReadyCrateTarget()
+
+					if readyCrate and readyCrate ~= currentCrate then
+						moveToCrate(readyCrate)
+					else
+						task.wait(0.1)
+					end
 				end
 			end
-		end
 
-		Items.RefreshCrates()
+			Items.RefreshCrates()
+		end)
+
 		Items.CollectCratesBusy = false
-		if setMovementPaused then
-			setMovementPaused(false)
+		setMovementPaused(false)
+
+		if ok then
+			Items.MoveUnderMapAfterCrates()
+			createNotification("Collect Crates", "Finished collecting crates.", "Success")
+		else
+			Items.ClearCrateCollectPart()
+			createNotification("Collect Crates", "Stopped: " .. tostring(err), "Error")
 		end
-		Items.MoveUnderMapAfterCrates()
-		createNotification("Collect Crates", "Finished collecting crates.", "Success")
 	end)
 end
 
@@ -3175,7 +3113,6 @@ ContextActionService:BindActionAtPriority(
 	Enum.KeyCode.F
 )
 
-
 local normalizeName = Utility.NormalizeName
 
 function Main.GetCodeGoBarn()
@@ -3272,7 +3209,6 @@ local function itemNameMatches(object, wantedName)
 	return getStrictItemMatchObject(object, wantedName) ~= nil
 end
 
-local movementSave = nil
 local visitedCollectPositions = {}
 local ignoredCollectTargets = {}
 local ignoredCollectPositions = {}
@@ -3326,37 +3262,6 @@ local function getLiveItemPart(object)
 	end
 
 	return part
-end
-
-local function setMovementPaused(paused)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-	if not humanoid then
-		return
-	end
-
-	if paused then
-		if not movementSave then
-			movementSave = {
-				WalkSpeed = humanoid.WalkSpeed,
-				JumpPower = humanoid.JumpPower,
-				JumpHeight = humanoid.JumpHeight,
-				AutoRotate = humanoid.AutoRotate
-			}
-		end
-
-		humanoid.WalkSpeed = 0
-		humanoid.JumpPower = 0
-		humanoid.JumpHeight = 0
-		humanoid.AutoRotate = false
-	elseif movementSave then
-		humanoid.WalkSpeed = movementSave.WalkSpeed
-		humanoid.JumpPower = movementSave.JumpPower
-		humanoid.JumpHeight = movementSave.JumpHeight
-		humanoid.AutoRotate = movementSave.AutoRotate
-		movementSave = nil
-	end
 end
 
 local function isVisitedCollectPosition(position)
@@ -3438,10 +3343,6 @@ end
 local primaryCollectOrder
 
 function getFullCollectibleSearchPool()
-	return Items.GetSearchChildren()
-end
-
-local function getImmediateCollectibleSearchPool()
 	return Items.GetSearchChildren()
 end
 
@@ -3692,7 +3593,7 @@ local function findImmediatePriorityCollectTarget()
 		local closestPart = nil
 		local closestDistance = math.huge
 
-		for _, object in ipairs(getImmediateCollectibleSearchPool()) do
+		for _, object in ipairs(Items.GetSearchChildren()) do
 			if itemNameMatches(object, wantedName) then
 				local part = getLiveItemPart(object)
 
@@ -3758,7 +3659,7 @@ function pressF(skipPickupLock)
 	local VirtualInputManager = game:GetService("VirtualInputManager")
 	local pressed = false
 
-	if not skipPickupLock and (Items.EarlyBusFBlockActive == true or Items.BusLandingFBlockActive == true) then
+	if not skipPickupLock and Items.IsPickupInputLocked() then
 		return false
 	end
 
@@ -3771,7 +3672,7 @@ function pressF(skipPickupLock)
 			task.wait(0.03)
 		end
 
-		if not skipPickupLock and Items.IsPickupInputLocked and Items.IsPickupInputLocked() then
+		if not skipPickupLock and Items.IsPickupInputLocked() then
 			return
 		end
 
@@ -3785,7 +3686,7 @@ function pressF(skipPickupLock)
 end
 
 function Items.TryPickupPrompt(itemObject, itemPart)
-	if Items.IsPickupInputLocked and Items.IsPickupInputLocked() then
+	if Items.IsPickupInputLocked() then
 		return false
 	end
 
@@ -3837,7 +3738,7 @@ function Items.GetMobilePickupButtonScore(button)
 		or not button.Visible
 		or button.AbsoluteSize.X < 12
 		or button.AbsoluteSize.Y < 12
-		or (gui and button:IsDescendantOf(gui)) then
+		or isHubGuiObject(button) then
 		return 0
 	end
 
@@ -4338,8 +4239,6 @@ function Items.DisableEarlyAutoCollectConflicts(mode, silent)
 			createNotification(Items.GetPriorityCollectTitle(mode), "Auto Use Permanent Items disabled.", "Info")
 		end
 	end
-
-	Items.ForceAutoPermanentItemsOff()
 end
 
 function Items.RestoreEarlyAutoCollectConflicts(mode, silent)
@@ -4522,7 +4421,6 @@ function Items.RunPriorityAutoCollect(mode)
 
 			if number then
 				Items.EarlyAutoCollectSawTimer = true
-				Main.TimerPrinterLastNumber = number
 
 				if number <= 3 then
 					break
@@ -4581,21 +4479,21 @@ function Items.RunPriorityAutoCollect(mode)
 
 		local itemName, itemCFrame, itemPosition, itemObject, itemPart = findNextCollectTarget()
 
-			if not itemName then
-				if isItemScanLoading() then
-					emptyTargetCount = 0
-					task.wait(0.05)
-					continue
-				end
+		if not itemName then
+			if isItemScanLoading() then
+				emptyTargetCount = 0
+				task.wait(0.05)
+				continue
+			end
 
-				if not Items.FullPriorityCollectUnlocked then
-					Items.UnlockFullPriorityCollect()
-					emptyTargetCount = 0
-					task.wait(0.05)
-					continue
-				end
+			if not Items.FullPriorityCollectUnlocked then
+				Items.UnlockFullPriorityCollect()
+				emptyTargetCount = 0
+				task.wait(0.05)
+				continue
+			end
 
-				emptyTargetCount += 1
+			emptyTargetCount += 1
 
 			if emptyTargetCount >= 8 then
 				Items.StopPriorityCollect(mode, "Priority list finished.", false)
@@ -5649,6 +5547,12 @@ Combat = {
 	SlapAuraThread = nil,
 	SlapAuraRange = 20,
 	SlapAuraInterval = 0.45,
+	SlapAuraRangePart = nil,
+	AutoWinEnabled = false,
+	AutoWinMode = "One at a time",
+	KillTargetPlayer = nil,
+	KillTeleportEnabled = false,
+	KillTargetDropdown = nil,
 	GloveTpSlapEnabled = false,
 	GloveTpSlapConnections = {},
 	GloveTpSlapCharacterConnections = {},
@@ -6037,30 +5941,6 @@ function Combat.IsRagdolledTarget(character, humanoid, targetPlayer)
 		or state == Enum.HumanoidStateType.GettingUp
 end
 
-function Combat.IsValidAutoTapTarget(targetPlayer)
-	if targetPlayer == player then
-		return nil, nil, nil
-	end
-
-	local character = targetPlayer.Character
-	if not character then
-		return nil, nil, nil
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
-
-	if not humanoid or not root or humanoid.Health <= 0 then
-		return nil, nil, nil
-	end
-
-	if Combat.IsRagdolledTarget(character, humanoid, targetPlayer) then
-		return nil, nil, nil
-	end
-
-	return character, humanoid, root
-end
-
 function Combat.IsGlovePart(object)
 	if not object or not object:IsA("BasePart") then
 		return false
@@ -6225,7 +6105,7 @@ function Combat.FindAutoGloveTapTarget()
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
-		local targetCharacter, _, targetRoot = Combat.IsValidAutoTapTarget(targetPlayer)
+		local targetCharacter, _, targetRoot = Combat.GetValidPlayerTarget(targetPlayer)
 
 		if targetRoot and (Combat.ArePartsInsideHitbox(equippedGloveParts, targetRoot) or Combat.IsTargetInAutoTapRange(root, targetRoot)) then
 			return targetPlayer
@@ -6724,7 +6604,7 @@ function Combat.StartGloveTpSlap()
 
 				if ok and guiObjects then
 					for _, guiObject in ipairs(guiObjects) do
-						if gui and (guiObject == gui or guiObject:IsDescendantOf(gui)) then
+						if isHubGuiObject(guiObject) then
 							return Enum.ContextActionResult.Pass
 						end
 					end
@@ -6800,16 +6680,16 @@ function Combat.CreateAntiSlapPart(folder, cframe, size)
 end
 
 function Combat.SpawnAntiSlapBox()
-    if Combat.AntiSlapBoxFolder and not Combat.AntiSlapBoxFolder.Parent then
-        Combat.AntiSlapBoxFolder = nil
-    end
+	if Combat.AntiSlapBoxFolder and not Combat.AntiSlapBoxFolder.Parent then
+		Combat.AntiSlapBoxFolder = nil
+	end
 
-    if not Combat.AntiSlapEnabled or Combat.AntiSlapBoxFolder or os.clock() - Combat.LastAntiSlapBoxAt < 0.2 then
-        return
-    end
+	if not Combat.AntiSlapEnabled or Combat.AntiSlapBoxFolder or os.clock() - Combat.LastAntiSlapBoxAt < 0.2 then
+		return
+	end
 
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
 
 	if not root then
 		return
@@ -6817,145 +6697,145 @@ function Combat.SpawnAntiSlapBox()
 
 	Combat.LastAntiSlapBoxAt = os.clock()
 
-    local folder = Instance.new("Folder")
-    folder.Name = "Part"
-    folder.Parent = workspace
-    Combat.AntiSlapBoxFolder = folder
+	local folder = Instance.new("Folder")
+	folder.Name = "Part"
+	folder.Parent = workspace
+	Combat.AntiSlapBoxFolder = folder
 
-    local center = root.CFrame
-    local innerWidth = 8
-    local innerHeight = 8
-    local innerDepth = 8
+	local center = root.CFrame
+	local innerWidth = 8
+	local innerHeight = 8
+	local innerDepth = 8
 	local thickness = 40
-    local outerWidth = innerWidth + thickness * 2
-    local outerHeight = innerHeight + thickness * 2
-    local outerDepth = innerDepth + thickness * 2
+	local outerWidth = innerWidth + thickness * 2
+	local outerHeight = innerHeight + thickness * 2
+	local outerDepth = innerDepth + thickness * 2
 
 	Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, -(innerHeight / 2 + thickness / 2), 0), Vector3.new(outerWidth, thickness, outerDepth))
 	Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, innerHeight / 2 + thickness / 2, 0), Vector3.new(outerWidth, thickness, outerDepth))
-    Combat.CreateAntiSlapPart(folder, center * CFrame.new(innerWidth / 2 + thickness / 2, 0, 0), Vector3.new(thickness, outerHeight, outerDepth))
-    Combat.CreateAntiSlapPart(folder, center * CFrame.new(-(innerWidth / 2 + thickness / 2), 0, 0), Vector3.new(thickness, outerHeight, outerDepth))
-    Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, 0, innerDepth / 2 + thickness / 2), Vector3.new(outerWidth, outerHeight, thickness))
-    Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, 0, -(innerDepth / 2 + thickness / 2)), Vector3.new(outerWidth, outerHeight, thickness))
+	Combat.CreateAntiSlapPart(folder, center * CFrame.new(innerWidth / 2 + thickness / 2, 0, 0), Vector3.new(thickness, outerHeight, outerDepth))
+	Combat.CreateAntiSlapPart(folder, center * CFrame.new(-(innerWidth / 2 + thickness / 2), 0, 0), Vector3.new(thickness, outerHeight, outerDepth))
+	Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, 0, innerDepth / 2 + thickness / 2), Vector3.new(outerWidth, outerHeight, thickness))
+	Combat.CreateAntiSlapPart(folder, center * CFrame.new(0, 0, -(innerDepth / 2 + thickness / 2)), Vector3.new(outerWidth, outerHeight, thickness))
 end
 
 function Combat.ClearAntiSlapBox()
-    if Combat.AntiSlapBoxFolder then
-        Combat.AntiSlapBoxFolder:Destroy()
-        Combat.AntiSlapBoxFolder = nil
-    end
+	if Combat.AntiSlapBoxFolder then
+		Combat.AntiSlapBoxFolder:Destroy()
+		Combat.AntiSlapBoxFolder = nil
+	end
 end
 
 function Combat.IsLocalAntiSlapRagdolled(character, humanoid)
-    if not character or not humanoid or humanoid.Health <= 0 then
-        return false
-    end
+	if not character or not humanoid or humanoid.Health <= 0 then
+		return false
+	end
 
-    local state = humanoid:GetState()
-    if state == Enum.HumanoidStateType.Running
-        or state == Enum.HumanoidStateType.RunningNoPhysics
-        or state == Enum.HumanoidStateType.Landed
-        or state == Enum.HumanoidStateType.Climbing
-        or state == Enum.HumanoidStateType.Swimming
-        or state == Enum.HumanoidStateType.Seated
-    then
-        return false
-    end
+	local state = humanoid:GetState()
+	if state == Enum.HumanoidStateType.Running
+		or state == Enum.HumanoidStateType.RunningNoPhysics
+		or state == Enum.HumanoidStateType.Landed
+		or state == Enum.HumanoidStateType.Climbing
+		or state == Enum.HumanoidStateType.Swimming
+		or state == Enum.HumanoidStateType.Seated
+	then
+		return false
+	end
 
-    local ragdollStatuses = {
-        "Ragdoll",
-        "Ragdolled",
-        "IsRagdolled",
-        "IsInRagdoll",
-        "Ragdolling",
-    }
+	local ragdollStatuses = {
+		"Ragdoll",
+		"Ragdolled",
+		"IsRagdolled",
+		"IsInRagdoll",
+		"Ragdolling",
+	}
 
-    if Combat.HasStrictTruthyStatus(player, ragdollStatuses)
-        or Combat.HasStrictTruthyStatus(character, ragdollStatuses)
-        or Combat.HasStrictTruthyStatus(humanoid, ragdollStatuses)
-    then
-        return true
-    end
+	if Combat.HasStrictTruthyStatus(player, ragdollStatuses)
+		or Combat.HasStrictTruthyStatus(character, ragdollStatuses)
+		or Combat.HasStrictTruthyStatus(humanoid, ragdollStatuses)
+	then
+		return true
+	end
 
-    if state == Enum.HumanoidStateType.Ragdoll then
-        return true
-    end
+	if state == Enum.HumanoidStateType.Ragdoll then
+		return true
+	end
 
-    if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.FallingDown then
-        for _, object in ipairs(character:GetDescendants()) do
-            local objectName = string.lower(object.Name)
-            if string.find(objectName, "ragdoll", 1, true) then
-                return true
-            end
+	if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.FallingDown then
+		for _, object in ipairs(character:GetDescendants()) do
+			local objectName = string.lower(object.Name)
+			if string.find(objectName, "ragdoll", 1, true) then
+				return true
+			end
 
-        end
-    end
+		end
+	end
 
-    return false
+	return false
 end
 
 function Combat.IsLocalAntiSlapKnockbacked(character, humanoid, root)
-    if not character or not humanoid or not root or humanoid.Health <= 0 then
-        return false
-    end
+	if not character or not humanoid or not root or humanoid.Health <= 0 then
+		return false
+	end
 
-    if os.clock() - Combat.AntiSlapEnabledAt < 0.75 then
-        return false
-    end
+	if os.clock() - Combat.AntiSlapEnabledAt < 0.75 then
+		return false
+	end
 
-    local state = humanoid:GetState()
-    local slapState = humanoid.PlatformStand
-        or state == Enum.HumanoidStateType.Ragdoll
-        or state == Enum.HumanoidStateType.Physics
-        or state == Enum.HumanoidStateType.FallingDown
-        or state == Enum.HumanoidStateType.GettingUp
+	local state = humanoid:GetState()
+	local slapState = humanoid.PlatformStand
+		or state == Enum.HumanoidStateType.Ragdoll
+		or state == Enum.HumanoidStateType.Physics
+		or state == Enum.HumanoidStateType.FallingDown
+		or state == Enum.HumanoidStateType.GettingUp
 
-    if not slapState then
-        return false
-    end
+	if not slapState then
+		return false
+	end
 
-    local velocity = root.AssemblyLinearVelocity or Vector3.zero
-    local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+	local velocity = root.AssemblyLinearVelocity or Vector3.zero
+	local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 
-    return horizontalVelocity >= 38 or math.abs(velocity.Y) >= 50
+	return horizontalVelocity >= 38 or math.abs(velocity.Y) >= 50
 end
 
 function Combat.UpdateAntiSlapBox(character, humanoid)
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local isRagdolled = Combat.AntiSlapEnabled and Combat.IsLocalAntiSlapRagdolled(character, humanoid)
-    local isKnockbacked = Combat.AntiSlapEnabled and Combat.IsLocalAntiSlapKnockbacked(character, humanoid, root)
-    local now = os.clock()
-    local state = humanoid and humanoid:GetState()
-    local recovered = state == Enum.HumanoidStateType.Running
-        or state == Enum.HumanoidStateType.RunningNoPhysics
-        or state == Enum.HumanoidStateType.Landed
-        or state == Enum.HumanoidStateType.Climbing
-        or state == Enum.HumanoidStateType.Swimming
-        or state == Enum.HumanoidStateType.Seated
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local isRagdolled = Combat.AntiSlapEnabled and Combat.IsLocalAntiSlapRagdolled(character, humanoid)
+	local isKnockbacked = Combat.AntiSlapEnabled and Combat.IsLocalAntiSlapKnockbacked(character, humanoid, root)
+	local now = os.clock()
+	local state = humanoid and humanoid:GetState()
+	local recovered = state == Enum.HumanoidStateType.Running
+		or state == Enum.HumanoidStateType.RunningNoPhysics
+		or state == Enum.HumanoidStateType.Landed
+		or state == Enum.HumanoidStateType.Climbing
+		or state == Enum.HumanoidStateType.Swimming
+		or state == Enum.HumanoidStateType.Seated
 
-    if recovered then
-        Combat.AntiSlapActiveUntil = 0
-    end
+	if recovered then
+		Combat.AntiSlapActiveUntil = 0
+	end
 
-    if not recovered and (isRagdolled or isKnockbacked) then
-        Combat.AntiSlapActiveUntil = math.max(Combat.AntiSlapActiveUntil, now + 1)
-    end
+	if not recovered and (isRagdolled or isKnockbacked) then
+		Combat.AntiSlapActiveUntil = math.max(Combat.AntiSlapActiveUntil, now + 1)
+	end
 
-    local shouldBox = not recovered and (isRagdolled or isKnockbacked or now < Combat.AntiSlapActiveUntil)
+	local shouldBox = not recovered and (isRagdolled or isKnockbacked or now < Combat.AntiSlapActiveUntil)
 
-    if shouldBox and (not Combat.AntiSlapWasRagdolled or (isKnockbacked and not Combat.AntiSlapBoxFolder)) then
-        Combat.SpawnAntiSlapBox()
-    elseif not shouldBox then
-        Combat.ClearAntiSlapBox()
-        Combat.AntiSlapActiveUntil = 0
-    end
+	if shouldBox and (not Combat.AntiSlapWasRagdolled or (isKnockbacked and not Combat.AntiSlapBoxFolder)) then
+		Combat.SpawnAntiSlapBox()
+	elseif not shouldBox then
+		Combat.ClearAntiSlapBox()
+		Combat.AntiSlapActiveUntil = 0
+	end
 
-    Combat.AntiSlapWasRagdolled = shouldBox
+	Combat.AntiSlapWasRagdolled = shouldBox
 end
 
 function Combat.ClearAntiSlapConnections()
-    for _, connection in ipairs(Combat.AntiSlapConnections) do
-        connection:Disconnect()
+	for _, connection in ipairs(Combat.AntiSlapConnections) do
+		connection:Disconnect()
 	end
 
 	Combat.AntiSlapConnections = {}
@@ -6968,91 +6848,78 @@ function Combat.HookAntiSlapCharacter()
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 
-    if not character or not humanoid or not root then
-        return
-    end
+	if not character or not humanoid or not root then
+		return
+	end
 
-    Combat.ClearAntiSlapBox()
-    Combat.AntiSlapWasRagdolled = Combat.IsLocalAntiSlapRagdolled(character, humanoid)
-    Combat.AntiSlapActiveUntil = 0
+	Combat.ClearAntiSlapBox()
+	Combat.AntiSlapWasRagdolled = Combat.IsLocalAntiSlapRagdolled(character, humanoid)
+	Combat.AntiSlapActiveUntil = 0
 
-    table.insert(Combat.AntiSlapConnections, humanoid.StateChanged:Connect(function()
-        Combat.UpdateAntiSlapBox(character, humanoid)
-    end))
+	table.insert(Combat.AntiSlapConnections, humanoid.StateChanged:Connect(function()
+		Combat.UpdateAntiSlapBox(character, humanoid)
+	end))
 
-    for _, statusName in ipairs({ "Ragdoll", "Ragdolled", "IsRagdolled", "IsInRagdoll", "Ragdolling" }) do
-        table.insert(Combat.AntiSlapConnections, character:GetAttributeChangedSignal(statusName):Connect(function()
-            Combat.UpdateAntiSlapBox(character, humanoid)
-        end))
+	for _, statusName in ipairs({ "Ragdoll", "Ragdolled", "IsRagdolled", "IsInRagdoll", "Ragdolling" }) do
+		table.insert(Combat.AntiSlapConnections, character:GetAttributeChangedSignal(statusName):Connect(function()
+			Combat.UpdateAntiSlapBox(character, humanoid)
+		end))
 
-        table.insert(Combat.AntiSlapConnections, humanoid:GetAttributeChangedSignal(statusName):Connect(function()
-            Combat.UpdateAntiSlapBox(character, humanoid)
-        end))
+		table.insert(Combat.AntiSlapConnections, humanoid:GetAttributeChangedSignal(statusName):Connect(function()
+			Combat.UpdateAntiSlapBox(character, humanoid)
+		end))
 
-        table.insert(Combat.AntiSlapConnections, player:GetAttributeChangedSignal(statusName):Connect(function()
-            Combat.UpdateAntiSlapBox(character, humanoid)
-        end))
-    end
+		table.insert(Combat.AntiSlapConnections, player:GetAttributeChangedSignal(statusName):Connect(function()
+			Combat.UpdateAntiSlapBox(character, humanoid)
+		end))
+	end
 
-    table.insert(Combat.AntiSlapConnections, character.DescendantAdded:Connect(function()
-        Combat.UpdateAntiSlapBox(character, humanoid)
-    end))
+	table.insert(Combat.AntiSlapConnections, character.DescendantAdded:Connect(function()
+		Combat.UpdateAntiSlapBox(character, humanoid)
+	end))
 
-    table.insert(Combat.AntiSlapConnections, character.DescendantRemoving:Connect(function()
-        task.defer(function()
-            Combat.UpdateAntiSlapBox(character, humanoid)
-        end)
-    end))
+	table.insert(Combat.AntiSlapConnections, character.DescendantRemoving:Connect(function()
+		task.defer(function()
+			Combat.UpdateAntiSlapBox(character, humanoid)
+		end)
+	end))
 
-    table.insert(Combat.AntiSlapConnections, RunService.Heartbeat:Connect(function()
-        if not Combat.AntiSlapEnabled or not root.Parent then
-            Combat.ClearAntiSlapBox()
-            return
-        end
+	table.insert(Combat.AntiSlapConnections, RunService.Heartbeat:Connect(function()
+		if not Combat.AntiSlapEnabled or not root.Parent then
+			Combat.ClearAntiSlapBox()
+			return
+		end
 
-        local now = os.clock()
-        if now - Combat.LastAntiSlapCheckAt < Combat.AntiSlapCheckInterval then
-            return
-        end
+		local now = os.clock()
+		if now - Combat.LastAntiSlapCheckAt < Combat.AntiSlapCheckInterval then
+			return
+		end
 
-        Combat.LastAntiSlapCheckAt = now
-        Combat.UpdateAntiSlapBox(character, humanoid)
-    end))
+		Combat.LastAntiSlapCheckAt = now
+		Combat.UpdateAntiSlapBox(character, humanoid)
+	end))
 end
 
 function Combat.SetAntiSlap(state, silent)
 	Combat.AntiSlapEnabled = state == true
 
-    if Combat.AntiSlapEnabled then
-        Combat.AntiSlapWasRagdolled = false
-        Combat.AntiSlapEnabledAt = os.clock()
-        Combat.AntiSlapActiveUntil = 0
-    Combat.HookAntiSlapCharacter()
-    if not silent then
-        createNotification("Anti-Ragdoll", "Anti-Ragdoll enabled.", "Success")
-    end
-    else
-        Combat.ClearAntiSlapConnections()
-        Combat.ClearAntiSlapBox()
-        Combat.AntiSlapWasRagdolled = false
-        Combat.AntiSlapActiveUntil = 0
-    if not silent then
-        createNotification("Anti-Ragdoll", "Anti-Ragdoll disabled.")
-    end
-    end
-end
-
-function Combat.GetPlayerRoot(targetPlayer)
-	if not targetPlayer or targetPlayer == player then
-		return nil
+	if Combat.AntiSlapEnabled then
+		Combat.AntiSlapWasRagdolled = false
+		Combat.AntiSlapEnabledAt = os.clock()
+		Combat.AntiSlapActiveUntil = 0
+		Combat.HookAntiSlapCharacter()
+		if not silent then
+			createNotification("Anti-Ragdoll", "Anti-Ragdoll enabled.", "Success")
+		end
+	else
+		Combat.ClearAntiSlapConnections()
+		Combat.ClearAntiSlapBox()
+		Combat.AntiSlapWasRagdolled = false
+		Combat.AntiSlapActiveUntil = 0
+		if not silent then
+			createNotification("Anti-Ragdoll", "Anti-Ragdoll disabled.")
+		end
 	end
-
-	local character = targetPlayer.Character
-	if not character then
-		return nil
-	end
-
-	return character:FindFirstChild("HumanoidRootPart")
 end
 
 function Combat.GetPlayerHumanoid(targetPlayer)
@@ -7469,6 +7336,13 @@ Anti = {
 	HideUnderMapEnabled = false,
 	AcidLavaEnabled = false,
 	AcidLavaParts = {},
+	AntiAcidEnabled = false,
+	AntiLavaEnabled = false,
+	AntiCubeOfDeathEnabled = false,
+	RemoveZoneEffectEnabled = false,
+	DeleteAllSeatsEnabled = false,
+	ZoneCenterPushEnabled = false,
+	ZoneCenterPushForce = 1,
 	StaffConnections = {},
 	StaffKeywords = {
 		"record", "recording", "rec", "clip", "proof", "evidence", "caught", "exposed",
@@ -7479,82 +7353,6 @@ Anti = {
 		"enregistrer", "preuve", "filmer", "registrare", "prova", "录制", "录像", "録画", "証拠"
 	}
 }
-
-function Anti.IsHazardName(text)
-	local lowerName = string.lower(tostring(text or ""))
-	local hazardWords = {
-		"acid",
-		"lava",
-		"kill",
-		"damage",
-		"death",
-		"deadly",
-		"hazard",
-		"hurt",
-		"burn",
-		"fire",
-		"void",
-		"toxic"
-	}
-
-	for _, word in ipairs(hazardWords) do
-		if string.find(lowerName, word, 1, true) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Anti.HasHazardAssetId(object)
-	local targetAssetId = "113506713"
-
-	local function matchesAssetId(value)
-		return string.find(tostring(value or ""), targetAssetId, 1, true) ~= nil
-	end
-
-	if object:IsA("MeshPart") and (matchesAssetId(object.MeshId) or matchesAssetId(object.TextureID)) then
-		return true
-	end
-
-	for _, descendant in ipairs(object:GetDescendants()) do
-		if descendant:IsA("SpecialMesh") and (matchesAssetId(descendant.MeshId) or matchesAssetId(descendant.TextureId)) then
-			return true
-		end
-
-		if descendant:IsA("Decal") and matchesAssetId(descendant.Texture) then
-			return true
-		end
-
-		if descendant:IsA("Texture") and matchesAssetId(descendant.Texture) then
-			return true
-		end
-	end
-
-	return false
-end
-
-function Anti.IsHazardPart(object)
-	if not object or not object:IsA("BasePart") then
-		return false
-	end
-
-	if Anti.HasHazardAssetId(object) then
-		return true
-	end
-
-	local current = object
-
-	while current and current ~= workspace do
-		if Anti.IsHazardName(current.Name) then
-			return true
-		end
-
-		current = current.Parent
-	end
-
-	return false
-end
 
 function Anti.EnableAcidLava()
 	local covers = {
@@ -7639,7 +7437,8 @@ function Anti.HandleStaffChat(speaker, message)
 	end
 
 	local speakerName = speaker and speaker.Name or "Unknown"
-		player:Kick("Anti-Staff detected chat from " .. speakerName .. ": " .. tostring(message) .. " [" .. tostring(keyword) .. "]")
+
+	player:Kick("Anti-Staff detected chat from " .. speakerName .. ": " .. tostring(message) .. " [" .. tostring(keyword) .. "]")
 end
 
 function Anti.HookStaffPlayer(targetPlayer)
@@ -7833,7 +7632,7 @@ end)
 -- New WindUI control layer.
 pcall(function()
 	WindUI:AddTheme({
-		Name = "Neon SVCLUTCH",
+		Name = "《《Neon Orchid》》",
 		Toggle = "#33C759",
 		Accent = "#CC33FF",
 		Outline = "#FF66DD",
@@ -7844,7 +7643,7 @@ pcall(function()
 		Icon = "#FF99DD",
 	})
 	WindUI:AddTheme({
-		Name = "EMPTY BASH",
+		Name = "《《¿?¿?》》",
 		Toggle = "#33C759",
 		Accent = "#6644CC",
 		Outline = "#8866EE",
@@ -7855,7 +7654,7 @@ pcall(function()
 		Icon = "#6644CC",
 	})
 	WindUI:AddTheme({
-		Name = "SUN RISES",
+		Name = "☆☆☆☆",
 		Toggle = "#33C759",
 		Accent = "#FF6B35",
 		Outline = "#FF9966",
@@ -7876,7 +7675,29 @@ pcall(function()
 		Dialog = "#001405",
 		Icon = "#00FF41",
 	})
-	end)
+	WindUI:AddTheme({
+		Name = "《《Cyber Lime》》",
+		Toggle = "#33C759",
+		Accent = "#B6FF00",
+		Outline = "#D4FF66",
+		Text = "#F4FFE0",
+		PlaceholderText = "#A8CC77",
+		Background = "#0A0E00",
+		Dialog = "#141C00",
+		Icon = "#B6FF00",
+	})
+	WindUI:AddTheme({
+		Name = "《《OPTIMISED TERMINAL》》",
+		Toggle = "#33C759",
+		Accent = "#39FF14",
+		Outline = "#7CFF66",
+		Text = "#F0FFF0",
+		PlaceholderText = "#88CC88",
+		Background = "#020A02",
+		Dialog = "#041404",
+		Icon = "#39FF14",
+	})
+end)
 
 local PREFERENCES_FOLDER = "SVCLUTCHER_HUB"
 local PREFERENCES_FILE = PREFERENCES_FOLDER .. "/preferences.json"
@@ -7910,7 +7731,7 @@ local function ensurePreferenceTables()
 	end
 
 	if type(Preferences.Theme) ~= "string" or Preferences.Theme == "" then
-		Preferences.Theme = "Dark"
+		Preferences.Theme = "Matrix"
 	end
 
 	if type(Preferences.TeleportMenuTab) ~= "string" or Preferences.TeleportMenuTab == "" then
@@ -8039,22 +7860,19 @@ end
 
 loadPreferences()
 ensurePreferenceTables()
-Preferences.Toggles.AutoCollect = false
 Preferences.Toggles.HideUnderMap = false
-Preferences.Toggles.AutoPickup = true
-Preferences.Toggles.AutoPermanentItems = true
 queueSavePreferences()
 
 Teleport.CustomSettingDefinitions = {
 	CustomStrikes = {
 		Default = Teleport.DefaultMaxStrikes,
-		Min = 3,
+		Min = 1,
 		Max = 50,
 		Integer = true,
 	},
 	CustomTPDebounce = {
 		Default = Teleport.DefaultDebounce,
-		Min = 0,2
+		Min = 0,
 		Max = 7,
 	},
 	CustomFLock = {
@@ -8375,19 +8193,19 @@ function Teleport.RunAutoOptimizeCooldownSettings(silent)
 	end)
 
 	if not silent then
-		createNotification("Cooldown settings", "CHECK PING AND MAKE SURE UR DEVICE DONT TRASHESs.", "Info")
+		createNotification("Cooldown settings", "Checking ping and optimizing settings.", "Info")
 	end
 end
 
 local WindUIWindow = WindUI:CreateWindow({
-	Title = "♧◇♡《《《SVCLUTCHER HUB》》》♧◇♡",
+	Title = "♡☆《《SVCLUTCHER_HUB》》☆♡",
 	Icon = "terminal",
-	Author = "♡♡sub 2 svclutcher♡♡",
+	Author = "CREDITS TO PUMPKIN HUB FOR THE NEW FEATURES",
 	Folder = "SVCLUTCHER_HUB",
 	Size = UDim2.fromOffset(580, 460),
 	ToggleKey = Enum.KeyCode.T,
 	Transparent = true,
-	Theme = "Matrix",
+	Theme = Preferences.Theme or "Matrix",
 	SideBarWidth = 200,
 })
 
@@ -8395,9 +8213,9 @@ local TabMain = WindUIWindow:Tab({ Title = "☆《《MAIN T3RM!N@L》》☆", Ic
 local TabItems = WindUIWindow:Tab({ Title = "《《ITEMS=COLLECT》》", Icon = "box" })
 local TabTeleports = WindUIWindow:Tab({ Title = "《《GOTO_FUNC》》", Icon = "map-pin" })
 local TabCombat = WindUIWindow:Tab({ Title = "《《C0MB@T=FUNC》》", Icon = "swords" })
-local TabBETA = WindUIWindow:Tab({ Title = "《《FIXED_BETA=OPFUNC》》", Icon = "bug" })
-local TabSafety = WindUIWindow:Tab({ Title = "☆《《SECURITY》》☆", Icon = "shield" })
-local TabSettings = WindUIWindow:Tab({ Title = "《《MENUC0NF1G》》", Icon = "wrench" })
+local TabBETA = WindUIWindow:Tab({ Title = "《FIXED_BETA=OPFUNC》", Icon = "bug" })
+local TabSafety = WindUIWindow:Tab({ Title = "《《SECURITY》》", Icon = "shield" })
+local TabSettings = WindUIWindow:Tab({ Title = "《《SETTINGS》》", Icon = "wrench" })
 
 local _windToggles = {}
 local _windSliders = {}
@@ -8794,6 +8612,1584 @@ function Anti.SetAcidLava(state)
 	end
 end
 
+--==================================================
+-- PORTED SECTIONS (scoped so the main chunk stays under the local limit)
+--==================================================
+local function PortedSections()
+
+	-- Instant Landing
+	UI.InstantLandEnabled = false
+	local instantLandTeleportCount = 0
+	local instantLandLastTransparency = 1
+	local instantLandCanCount = false
+
+	local function InstantLandGround(position)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { player.Character }
+
+		local result = workspace:Raycast(position + Vector3.new(0, 40, 0), Vector3.new(0, -500, 0), params)
+		return result and (result.Position + Vector3.new(0, 3, 0)) or (position + Vector3.new(0, 3, 0))
+	end
+
+	local function InstantLandNow()
+		if instantLandTeleportCount >= 1 then
+			return
+		end
+
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local crystal = workspace:FindFirstChild("CrystalBlue", true)
+
+		if not root or not crystal then
+			return
+		end
+
+		root.CFrame = CFrame.new(InstantLandGround(crystal.Position), root.Position + root.CFrame.LookVector)
+		instantLandTeleportCount += 1
+		instantLandCanCount = false
+		UI.InstantLandEnabled = false
+
+		if UI.ToggleRefs.InstantLand then
+			UI.ToggleRefs.InstantLand.Set(false, false)
+		end
+	end
+
+	function UI.SetInstantLand(state, silent)
+		UI.InstantLandEnabled = state == true
+
+		if UI.InstantLandEnabled then
+			instantLandTeleportCount = 0
+			instantLandCanCount = false
+			instantLandLastTransparency = 1
+
+			if not silent then
+				createNotification("Instant Landing", "Instant Landing enabled.", "Success")
+			end
+		elseif not silent then
+			createNotification("Instant Landing", "Instant Landing disabled.")
+		end
+	end
+
+	task.spawn(function()
+		while true do
+			local character = player.Character
+
+			if UI.InstantLandEnabled and instantLandTeleportCount < 1 and character then
+				local head = character:FindFirstChild("Head")
+
+				if head then
+					local transparency = head.Transparency
+
+					if transparency == 1 then
+						instantLandCanCount = true
+					end
+
+					if transparency == 0 and instantLandLastTransparency ~= 0 and instantLandCanCount then
+						InstantLandNow()
+					end
+
+					instantLandLastTransparency = transparency
+				else
+					instantLandLastTransparency = 1
+				end
+			else
+				instantLandLastTransparency = 1
+			end
+
+			task.wait(0.05)
+		end
+	end)
+
+	player.CharacterAdded:Connect(function()
+		instantLandTeleportCount = 0
+		instantLandLastTransparency = 1
+		instantLandCanCount = false
+	end)
+
+	task.spawn(function()
+		local remotes = ReplicatedStorage:WaitForChild("Remotes", 20)
+		local busJumping = remotes and remotes:WaitForChild("BusJumping", 20)
+
+		if busJumping then
+			busJumping.OnClientEvent:Connect(function()
+				if UI.InstantLandEnabled then
+					InstantLandNow()
+				end
+			end)
+		end
+	end)
+
+	-- Slap Aura Range
+	local function RemoveSlapAuraRange()
+		if Combat.SlapAuraRangePart then
+			Combat.SlapAuraRangePart:Destroy()
+			Combat.SlapAuraRangePart = nil
+		end
+	end
+
+	local function CreateSlapAuraRange()
+		RemoveSlapAuraRange()
+
+		local character = player.Character or player.CharacterAdded:Wait()
+		local root = character:WaitForChild("HumanoidRootPart", 10)
+
+		if not root then
+			return
+		end
+
+		local diameter = Combat.SlapAuraRange * 2
+		local ball = Instance.new("Part")
+		ball.Name = "Part"
+		ball.Shape = Enum.PartType.Ball
+		ball.Size = Vector3.new(diameter, diameter, diameter)
+		ball.Color = Color3.fromRGB(0, 255, 0)
+		ball.Transparency = 0.7
+		ball.Material = Enum.Material.Neon
+		ball.Anchored = false
+		ball.CanCollide = false
+		ball.CanTouch = false
+		ball.CanQuery = false
+		ball.CastShadow = false
+		ball.Massless = true
+		ball.CFrame = root.CFrame
+		ball.Parent = workspace
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = root
+		weld.Part1 = ball
+		weld.Parent = ball
+
+		Combat.SlapAuraRangePart = ball
+	end
+
+	function Combat.SetSlapAuraRange(state, silent)
+		if state then
+			CreateSlapAuraRange()
+
+			if not silent then
+				createNotification("Slap Aura Range", "Range sphere shown.", "Success")
+			end
+		else
+			RemoveSlapAuraRange()
+
+			if not silent then
+				createNotification("Slap Aura Range", "Range sphere removed.")
+			end
+		end
+	end
+
+	function Combat.SetSlapAuraSpeed(mode)
+		Combat.SlapAuraInterval = mode == "Fast (May get you kicked)" and 0.2 or 0.45
+	end
+
+	-- Auto Win
+	local autoWinTarget = nil
+	local autoWinHitCount = 0
+	local autoWinPauseUntil = 0
+
+	local AUTO_WIN_INTERVAL = 3
+	local AUTO_WIN_TARGETS_BEFORE_PAUSE = 5
+	local AUTO_WIN_PAUSE_DURATION = 10
+
+	local function AutoWinGetRoot(targetPlayer)
+		local character = targetPlayer and targetPlayer.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+
+		if not humanoid or humanoid.Health <= 0 or not root then
+			return nil
+		end
+
+		return root
+	end
+
+	local function AutoWinIsRagdolled(targetPlayer)
+		local character = targetPlayer and targetPlayer.Character
+		if not character then
+			return true
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then
+			return true
+		end
+
+		local ragdollValue = character:FindFirstChild("Ragdolled", true)
+
+		if ragdollValue and ragdollValue:IsA("BoolValue") then
+			return ragdollValue.Value
+		end
+
+		return humanoid.PlatformStand
+	end
+
+	local function AutoWinGetClosestPlayer(skipRagdolled)
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+
+		if not humanoid or humanoid.Health <= 0 or not root then
+			return nil
+		end
+
+		local closestPlayer = nil
+		local closestDistance = math.huge
+
+		for _, targetPlayer in ipairs(Players:GetPlayers()) do
+			local targetRoot = targetPlayer ~= player and AutoWinGetRoot(targetPlayer)
+
+			if targetRoot and not (skipRagdolled and AutoWinIsRagdolled(targetPlayer)) then
+				local distance = (root.Position - targetRoot.Position).Magnitude
+
+				if distance < closestDistance then
+					closestDistance = distance
+					closestPlayer = targetPlayer
+				end
+			end
+		end
+
+		return closestPlayer
+	end
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTO_WIN_INTERVAL)
+
+			if Combat.AutoWinEnabled and os.clock() >= autoWinPauseUntil then
+				local ok, err = pcall(function()
+					local character = player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					local root = character and character:FindFirstChild("HumanoidRootPart")
+
+					if not humanoid or humanoid.Health <= 0 or not root then
+						return
+					end
+
+					if Combat.AutoWinMode == "One at a time" then
+						if not autoWinTarget or not AutoWinGetRoot(autoWinTarget) then
+							autoWinTarget = AutoWinGetClosestPlayer(false)
+						end
+
+						local targetRoot = AutoWinGetRoot(autoWinTarget)
+
+						if targetRoot then
+							root.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+						end
+					else
+						autoWinTarget = AutoWinGetClosestPlayer(true)
+						local targetRoot = AutoWinGetRoot(autoWinTarget)
+
+						if targetRoot and not AutoWinIsRagdolled(autoWinTarget) then
+							root.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+							autoWinHitCount += 1
+
+							if autoWinHitCount >= AUTO_WIN_TARGETS_BEFORE_PAUSE then
+								autoWinHitCount = 0
+								autoWinPauseUntil = os.clock() + AUTO_WIN_PAUSE_DURATION
+								autoWinTarget = nil
+							end
+						end
+					end
+				end)
+
+				if not ok then
+					warn("[Auto Win]", err)
+				end
+			end
+		end
+	end)
+
+	function Combat.SetAutoWin(state, silent)
+		Combat.AutoWinEnabled = state == true
+
+		if not Combat.AutoWinEnabled then
+			autoWinTarget = nil
+			autoWinHitCount = 0
+			autoWinPauseUntil = 0
+		end
+
+		if not silent then
+			createNotification("Auto Win", Combat.AutoWinEnabled and "Auto Win enabled." or "Auto Win disabled.", Combat.AutoWinEnabled and "Success" or "Info")
+		end
+	end
+
+	function Combat.SetAutoWinMode(mode)
+		Combat.AutoWinMode = mode or "One at a time"
+		autoWinTarget = nil
+		autoWinHitCount = 0
+		autoWinPauseUntil = 0
+	end
+
+	-- Kill Player / Target
+	local killLoopRunning = false
+	local killRagdollWaitCount = 0
+	local KILL_MAX_RAGDOLL_WAITS = 5
+	local KILL_RAGDOLL_COOLDOWN = 15
+	local killTargetCharacterConnection = nil
+	local killTargetDeathConnection = nil
+
+	local function KillDisconnectTargetConnections()
+		if killTargetCharacterConnection then
+			killTargetCharacterConnection:Disconnect()
+			killTargetCharacterConnection = nil
+		end
+
+		if killTargetDeathConnection then
+			killTargetDeathConnection:Disconnect()
+			killTargetDeathConnection = nil
+		end
+	end
+
+	local function KillGetLocalRoot()
+		local character = player.Character
+		return character and character:FindFirstChild("HumanoidRootPart")
+	end
+
+	local function KillGetTargetRoot()
+		local character = Combat.KillTargetPlayer and Combat.KillTargetPlayer.Character
+		return character and character:FindFirstChild("HumanoidRootPart")
+	end
+
+	local function KillIsTargetRagdolled()
+		local character = Combat.KillTargetPlayer and Combat.KillTargetPlayer.Character
+		if not character then
+			return false
+		end
+
+		if character:GetAttribute("Ragdolled") == true then
+			return true
+		end
+
+		local ragdolledValue = character:FindFirstChild("Ragdolled", true)
+
+		if ragdolledValue and ragdolledValue:IsA("BoolValue") and ragdolledValue.Value then
+			return true
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+		if humanoid then
+			local state = humanoid:GetState()
+
+			if state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.Physics then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function KillIsTargetDead()
+		local targetPlayer = Combat.KillTargetPlayer
+
+		if not targetPlayer then
+			return true
+		end
+
+		local character = targetPlayer.Character
+		if not character then
+			return false
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		return humanoid ~= nil and humanoid.Health <= 0
+	end
+
+	local function KillSetupCharacter(character)
+		if not character then
+			return
+		end
+
+		if killTargetDeathConnection then
+			killTargetDeathConnection:Disconnect()
+			killTargetDeathConnection = nil
+		end
+
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		if not humanoid then
+			return
+		end
+
+		killTargetDeathConnection = humanoid.Died:Connect(function()
+			Combat.KillTeleportEnabled = false
+			killRagdollWaitCount = 0
+			createNotification("Kill Player", (Combat.KillTargetPlayer and Combat.KillTargetPlayer.Name or "Target") .. " died. Teleport disabled.")
+		end)
+	end
+
+	local function KillSetupTarget()
+		KillDisconnectTargetConnections()
+
+		local targetPlayer = Combat.KillTargetPlayer
+		if not targetPlayer then
+			return
+		end
+
+		if targetPlayer.Character then
+			task.spawn(function()
+				KillSetupCharacter(targetPlayer.Character)
+			end)
+		end
+
+		killTargetCharacterConnection = targetPlayer.CharacterAdded:Connect(function(character)
+			task.spawn(function()
+				KillSetupCharacter(character)
+			end)
+		end)
+	end
+
+	local function KillWaitUntilUnragdolled()
+		while Combat.KillTeleportEnabled do
+			if not Combat.KillTargetPlayer or not Combat.KillTargetPlayer.Parent then
+				return false
+			end
+
+			if KillIsTargetDead() then
+				Combat.KillTeleportEnabled = false
+				killRagdollWaitCount = 0
+				return false
+			end
+
+			if not KillGetTargetRoot() then
+				task.wait(0.1)
+			elseif not KillIsTargetRagdolled() then
+				return true
+			else
+				killRagdollWaitCount += 1
+
+				if killRagdollWaitCount >= KILL_MAX_RAGDOLL_WAITS then
+					createNotification("Kill Player", "Ragdoll limit reached. Waiting 15 seconds.")
+					task.wait(KILL_RAGDOLL_COOLDOWN)
+					killRagdollWaitCount = 0
+				else
+					repeat
+						task.wait(0.1)
+					until not Combat.KillTeleportEnabled or KillIsTargetDead() or not KillIsTargetRagdolled()
+				end
+			end
+		end
+
+		return false
+	end
+
+	local function KillStartLoop()
+		if killLoopRunning then
+			return
+		end
+
+		killLoopRunning = true
+
+		task.spawn(function()
+			while Combat.KillTeleportEnabled do
+				if not Combat.KillTargetPlayer or not Combat.KillTargetPlayer.Parent or KillIsTargetDead() then
+					Combat.KillTeleportEnabled = false
+					killRagdollWaitCount = 0
+					break
+				end
+
+				if not KillWaitUntilUnragdolled() then
+					break
+				end
+
+				local localRoot = KillGetLocalRoot()
+				local targetRoot = KillGetTargetRoot()
+
+				if not localRoot or not targetRoot then
+					task.wait(0.1)
+				else
+					local originalCFrame = localRoot.CFrame
+
+					localRoot.CFrame = targetRoot.CFrame
+					task.wait(0.5)
+
+					if Combat.KillTeleportEnabled then
+						local currentRoot = KillGetLocalRoot()
+
+						if currentRoot then
+							currentRoot.CFrame = originalCFrame
+						end
+					end
+
+					task.wait(0.5)
+				end
+			end
+
+			killLoopRunning = false
+		end)
+	end
+
+	function Combat.SetKillPlayer(state)
+		Combat.KillTeleportEnabled = state == true
+
+		if not Combat.KillTeleportEnabled then
+			killRagdollWaitCount = 0
+			return
+		end
+
+		if not Combat.KillTargetPlayer or not Combat.KillTargetPlayer.Parent then
+			Combat.KillTeleportEnabled = false
+			createNotification("Kill Player", "Select a target first.")
+
+			if UI.ToggleRefs.KillPlayer then
+				UI.ToggleRefs.KillPlayer.Set(false, false)
+			end
+
+			return
+		end
+
+		if KillIsTargetDead() then
+			Combat.KillTeleportEnabled = false
+			createNotification("Kill Player", "Target is dead.")
+
+			if UI.ToggleRefs.KillPlayer then
+				UI.ToggleRefs.KillPlayer.Set(false, false)
+			end
+
+			return
+		end
+
+		killRagdollWaitCount = 0
+		KillStartLoop()
+	end
+
+	function Combat.SetKillTarget(selectedName)
+		KillDisconnectTargetConnections()
+
+		Combat.KillTargetPlayer = selectedName and Players:FindFirstChild(selectedName) or nil
+		killRagdollWaitCount = 0
+
+		if Combat.KillTargetPlayer then
+			KillSetupTarget()
+			createNotification("Target", "Selected: " .. Combat.KillTargetPlayer.Name)
+		else
+			createNotification("Target", "Target cleared.")
+		end
+	end
+
+	function Combat.GetKillTargetNames()
+		local names = {}
+
+		for _, targetPlayer in ipairs(Players:GetPlayers()) do
+			if targetPlayer ~= player then
+				table.insert(names, targetPlayer.Name)
+			end
+		end
+
+		table.sort(names)
+
+		if #names == 0 then
+			table.insert(names, "(none)")
+		end
+
+		return names
+	end
+
+	function Combat.RefreshKillTargetList()
+		if not Combat.KillTargetDropdown then
+			return
+		end
+
+		local names = Combat.GetKillTargetNames()
+
+		pcall(function()
+			Combat.KillTargetDropdown:Refresh(names)
+		end)
+
+		if Combat.KillTargetPlayer and not Combat.KillTargetPlayer.Parent then
+			KillDisconnectTargetConnections()
+			Combat.KillTargetPlayer = nil
+			Combat.KillTeleportEnabled = false
+			killRagdollWaitCount = 0
+		end
+	end
+
+	Players.PlayerAdded:Connect(function()
+		task.wait(0.2)
+		Combat.RefreshKillTargetList()
+	end)
+
+	Players.PlayerRemoving:Connect(function()
+		task.wait(0.2)
+		Combat.RefreshKillTargetList()
+	end)
+
+	-- Auto Bomb Bus
+	task.spawn(function()
+		while true do
+			if Items.AutoBombBusEnabled then
+				local character = player.Character
+				local head = character and character:FindFirstChild("Head")
+
+				if head and head.Transparency == 1 then
+					task.wait(10.3)
+
+					local currentCharacter = player.Character
+					local backpack = player:FindFirstChild("Backpack")
+					local bomb = (currentCharacter and currentCharacter:FindFirstChild("Bomb"))
+						or (backpack and backpack:FindFirstChild("Bomb"))
+
+					if bomb and currentCharacter then
+						bomb.Parent = currentCharacter
+
+						pcall(function()
+							bomb:Activate()
+						end)
+					end
+				end
+			end
+
+			task.wait(0.05)
+		end
+	end)
+
+	function Items.SetAutoBombBus(state, silent)
+		Items.AutoBombBusEnabled = state == true
+
+		if not silent then
+			createNotification("Auto Bomb Bus", Items.AutoBombBusEnabled and "Auto Bomb Bus enabled." or "Auto Bomb Bus disabled.", Items.AutoBombBusEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Auto goto crate
+	local autoGotoCrateRunning = false
+
+	local function AutoGotoCratePosition(crate)
+		if crate.PrimaryPart then
+			return crate.PrimaryPart.Position
+		end
+
+		local success, pivot = pcall(function()
+			return crate:GetPivot()
+		end)
+
+		return success and pivot.Position or nil
+	end
+
+	local function AutoGotoCrateIsBroken(crate)
+		if not crate or not crate.Parent or crate.Name ~= "Crate" then
+			return true
+		end
+
+		local health = crate:GetAttribute("Health")
+
+		if typeof(health) == "number" and health <= 0 then
+			return true
+		end
+
+		for _, descendant in ipairs(crate:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				return false
+			end
+		end
+
+		return true
+	end
+
+	local function AutoGotoCrateClosest(cratesFolder)
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+
+		if not root then
+			return nil
+		end
+
+		local closest = nil
+		local closestDistance = math.huge
+
+		for _, crate in ipairs(cratesFolder:GetChildren()) do
+			if crate.Name == "Crate" then
+				local position = AutoGotoCratePosition(crate)
+
+				if position then
+					local distance = (root.Position - position).Magnitude
+
+					if distance < closestDistance then
+						closestDistance = distance
+						closest = crate
+					end
+				end
+			end
+		end
+
+		return closest
+	end
+
+	function Items.SetAutoGotoCrate(state, silent)
+		Items.AutoGotoCrateEnabled = state == true
+
+		if not Items.AutoGotoCrateEnabled then
+			if not silent then
+				createNotification("Auto goto crate", "Auto goto crate disabled.")
+			end
+
+			return
+		end
+
+		local shipments = workspace:FindFirstChild("Shipments")
+		local cratesFolder = shipments and shipments:FindFirstChild("Crates")
+
+		if not cratesFolder then
+			Items.AutoGotoCrateEnabled = false
+			createNotification("Auto goto crate", "Workspace.Shipments.Crates not found.")
+
+			if UI.ToggleRefs.AutoGotoCrate then
+				UI.ToggleRefs.AutoGotoCrate.Set(false, false)
+			end
+
+			return
+		end
+
+		if not autoGotoCrateRunning then
+			autoGotoCrateRunning = true
+
+			task.spawn(function()
+				local targetCrate = nil
+
+				while Items.AutoGotoCrateEnabled and cratesFolder.Parent do
+					if not targetCrate or AutoGotoCrateIsBroken(targetCrate) then
+						targetCrate = AutoGotoCrateClosest(cratesFolder)
+
+						local character = player.Character
+						local root = character and character:FindFirstChild("HumanoidRootPart")
+						local position = targetCrate and AutoGotoCratePosition(targetCrate)
+
+						if root and position then
+							root.CFrame = CFrame.new(position + Vector3.new(0, 10, 0))
+						end
+					end
+
+					task.wait(0.1)
+				end
+
+				autoGotoCrateRunning = false
+			end)
+		end
+
+		if not silent then
+			createNotification("Auto goto crate", "Auto goto crate enabled.", "Success")
+		end
+	end
+
+	-- Get all items
+	local getAllItemsRunning = false
+	local getAllItemsNoclipConnection = nil
+
+	local function SetGetAllItemsNoclip(enabled)
+		if getAllItemsNoclipConnection then
+			getAllItemsNoclipConnection:Disconnect()
+			getAllItemsNoclipConnection = nil
+		end
+
+		if not enabled then
+			local character = player.Character
+
+			if character then
+				for _, object in ipairs(character:GetDescendants()) do
+					if object:IsA("BasePart") then
+						object.CanCollide = true
+					end
+				end
+			end
+
+			return
+		end
+
+		getAllItemsNoclipConnection = RunService.Stepped:Connect(function()
+			local character = Items.GetAllItemsEnabled and player.Character
+
+			if character then
+				for _, object in ipairs(character:GetDescendants()) do
+					if object:IsA("BasePart") then
+						object.CanCollide = false
+					end
+				end
+			end
+		end)
+	end
+
+	local function FindClosestGetAllTool()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local itemsRoot = workspace:FindFirstChild("Items")
+
+		if not root or not itemsRoot then
+			return nil
+		end
+
+		local closest = nil
+		local closestDistance = math.huge
+
+		for _, tool in ipairs(itemsRoot:GetChildren()) do
+			if tool:IsA("Tool") then
+				local handle = tool:FindFirstChild("Handle")
+
+				if handle and handle:IsA("BasePart") then
+					local distance = (handle.Position - root.Position).Magnitude
+
+					if distance < closestDistance then
+						closestDistance = distance
+						closest = tool
+					end
+				end
+			end
+		end
+
+		return closest
+	end
+
+	local function TweenToGetAllTool(tool)
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local handle = tool and tool:FindFirstChild("Handle")
+
+		if not root or not handle then
+			return false
+		end
+
+		local tween = TweenService:Create(root, TweenInfo.new(0.1, Enum.EasingStyle.Linear), {
+			CFrame = CFrame.new(handle.Position + Vector3.new(2, 0, 0), handle.Position),
+		})
+
+		tween:Play()
+		local finished = false
+
+		local connection = tween.Completed:Connect(function()
+			finished = true
+		end)
+
+		while not finished do
+			if not Items.GetAllItemsEnabled or not tool.Parent then
+				tween:Cancel()
+				connection:Disconnect()
+				return false
+			end
+
+			task.wait()
+		end
+
+		connection:Disconnect()
+		return true
+	end
+
+	local function GetAllPickup(tool)
+		local handle = tool and tool:FindFirstChild("Handle")
+		local id = handle and handle:GetAttribute("ItemId")
+
+		if not id then
+			return false
+		end
+
+		local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+		local itemRemote = remotes and remotes:FindFirstChild("Item")
+
+		if itemRemote then
+			itemRemote:FireServer(id)
+		end
+
+		local itemGui = handle:FindFirstChild("ItemGui")
+
+		if itemGui then
+			itemGui.Enabled = false
+		end
+
+		return true
+	end
+
+	function Items.SetGetAllItems(state, silent)
+		Items.GetAllItemsEnabled = state == true
+
+		if Items.GetAllItemsEnabled then
+			SetGetAllItemsNoclip(true)
+
+			if not getAllItemsRunning then
+				getAllItemsRunning = true
+
+				task.spawn(function()
+					while Items.GetAllItemsEnabled do
+						local countdown = Main.FindSlapRoyaleTimer()
+
+						if countdown and countdown >= 1 and countdown <= 3 then
+							local tool = FindClosestGetAllTool()
+
+							if tool and TweenToGetAllTool(tool) then
+								task.wait(0.2)
+
+								if Items.GetAllItemsEnabled and tool.Parent then
+									GetAllPickup(tool)
+									task.wait(2)
+								end
+							else
+								task.wait(0.1)
+							end
+						else
+							task.wait(0.1)
+						end
+					end
+
+					getAllItemsRunning = false
+				end)
+			end
+
+			if not silent then
+				createNotification("Get all items", "Get all items enabled.", "Success")
+			end
+		else
+			SetGetAllItemsNoclip(false)
+
+			if not silent then
+				createNotification("Get all items", "Get all items disabled.")
+			end
+		end
+	end
+
+	player.CharacterAdded:Connect(function()
+		task.wait(0.2)
+
+		if Items.GetAllItemsEnabled then
+			SetGetAllItemsNoclip(true)
+		end
+	end)
+
+	-- Anti Acid
+	task.spawn(function()
+		while true do
+			if Anti.AntiAcidEnabled then
+				local whitelist = {
+					["Colliders"] = true,
+					["Effects"] = true,
+					["IgnoreList"] = true,
+					["InteractableEvents"] = true,
+					["Items"] = true,
+					["Map"] = true,
+					["MapBounds"] = true,
+					["Rubbled Remains"] = true,
+					["Shipments"] = true,
+					["Lobby"] = true,
+					["Halloween"] = true,
+					["SoundRegions"] = true,
+					["Part"] = true
+				}
+
+				for _, object in ipairs(workspace:GetChildren()) do
+					if object:IsA("Folder")
+						and not whitelist[object.Name]
+						and object ~= Combat.AntiSlapBoxFolder then
+						for _, child in ipairs(object:GetChildren()) do
+							child:Destroy()
+						end
+
+						object:Destroy()
+					end
+				end
+			end
+
+			task.wait(0.1)
+		end
+	end)
+
+	function Anti.SetAntiAcid(state, silent)
+		Anti.AntiAcidEnabled = state == true
+
+		if not silent then
+			createNotification("Anti Acid", Anti.AntiAcidEnabled and "Anti Acid enabled." or "Anti Acid disabled.", Anti.AntiAcidEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Anti Lava
+	task.spawn(function()
+		while true do
+			if Anti.AntiLavaEnabled then
+				for _, object in ipairs(workspace:GetDescendants()) do
+					if object:IsA("BasePart") and object.Name == "Lava" then
+						object:Destroy()
+					end
+				end
+			end
+
+			task.wait(0.1)
+		end
+	end)
+
+	function Anti.SetAntiLava(state, silent)
+		Anti.AntiLavaEnabled = state == true
+
+		if not silent then
+			createNotification("Anti Lava", Anti.AntiLavaEnabled and "Anti Lava enabled." or "Anti Lava disabled.", Anti.AntiLavaEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Anti Cube of Death
+	task.spawn(function()
+		while true do
+			if Anti.AntiCubeOfDeathEnabled then
+				local rubble = workspace:FindFirstChild("Rubbled Remains")
+
+				if rubble then
+					for _, object in ipairs(rubble:GetDescendants()) do
+						if object.Name == "Cube of Death" or object.Name == "Death" then
+							object:Destroy()
+						end
+					end
+				end
+			end
+
+			task.wait(0.1)
+		end
+	end)
+
+	function Anti.SetAntiCubeOfDeath(state, silent)
+		Anti.AntiCubeOfDeathEnabled = state == true
+
+		if not silent then
+			createNotification("Anti Cube of Death", Anti.AntiCubeOfDeathEnabled and "Anti Cube of Death enabled." or "Anti Cube of Death disabled.", Anti.AntiCubeOfDeathEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Remove Zone Effect
+	task.spawn(function()
+		while true do
+			if Anti.RemoveZoneEffectEnabled then
+				for _, object in ipairs(game:GetDescendants()) do
+					if object.Name == "ZoneEffects" then
+						object:Destroy()
+					end
+				end
+			end
+
+			task.wait(1)
+		end
+	end)
+
+	function Anti.SetRemoveZoneEffect(state, silent)
+		Anti.RemoveZoneEffectEnabled = state == true
+
+		if not silent then
+			createNotification("Remove Zone Effect", Anti.RemoveZoneEffectEnabled and "Remove Zone Effect enabled." or "Remove Zone Effect disabled.", Anti.RemoveZoneEffectEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Delete All Seats
+	task.spawn(function()
+		while true do
+			if Anti.DeleteAllSeatsEnabled then
+				for _, object in ipairs(game:GetDescendants()) do
+					if object:IsA("Seat") or object:IsA("VehicleSeat") then
+						object:Destroy()
+					end
+				end
+			end
+
+			task.wait(1)
+		end
+	end)
+
+	function Anti.SetDeleteAllSeats(state, silent)
+		Anti.DeleteAllSeatsEnabled = state == true
+
+		if not silent then
+			createNotification("Delete All Seats", Anti.DeleteAllSeatsEnabled and "Delete All Seats enabled." or "Delete All Seats disabled.", Anti.DeleteAllSeatsEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Speed Boost
+	task.spawn(function()
+		while true do
+			if UI.SpeedBoostEnabled then
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+
+				if humanoid and root then
+					local direction = humanoid.MoveDirection
+
+					if direction.Magnitude > 0 then
+						root.CFrame = root.CFrame + (direction * 0.5)
+					end
+				end
+			end
+
+			task.wait(0.07)
+		end
+	end)
+
+	function UI.SetSpeedBoost(state, silent)
+		UI.SpeedBoostEnabled = state == true
+
+		if not silent then
+			createNotification("Speed Boost", UI.SpeedBoostEnabled and "Speed Boost enabled." or "Speed Boost disabled.", UI.SpeedBoostEnabled and "Success" or "Info")
+		end
+	end
+
+	-- Zone Center Push
+	local zoneCenterPushConnection = nil
+	local zoneCenterPushElapsed = 0
+	local zoneCenterPushWasPushing = false
+	local zoneCenterPushLastWarning = 0
+	local ZONE_PUSH_CHECK_INTERVAL = 0.1
+	local ZONE_PUSH_MAX_SPEED = 70
+
+	local function ZoneCenterPushGetZone()
+		local zone = workspace:FindFirstChild("Zone1", true)
+		return zone and zone:IsA("BasePart") and zone or nil
+	end
+
+	local function ZoneCenterPushStopLoop()
+		if zoneCenterPushConnection then
+			zoneCenterPushConnection:Disconnect()
+			zoneCenterPushConnection = nil
+		end
+
+		zoneCenterPushElapsed = 0
+		zoneCenterPushWasPushing = false
+	end
+
+	local function ZoneCenterPushStartLoop()
+		ZoneCenterPushStopLoop()
+
+		zoneCenterPushConnection = RunService.Heartbeat:Connect(function(dt)
+			if not Anti.ZoneCenterPushEnabled then
+				return
+			end
+
+			zoneCenterPushElapsed += dt
+
+			if zoneCenterPushElapsed < ZONE_PUSH_CHECK_INTERVAL then
+				return
+			end
+
+			zoneCenterPushElapsed = 0
+
+			local zone = ZoneCenterPushGetZone()
+
+			if not zone then
+				if os.clock() - zoneCenterPushLastWarning > 3 then
+					zoneCenterPushLastWarning = os.clock()
+					createNotification("Zone Center Push", "Zone1 wasn't found in Workspace.")
+				end
+
+				return
+			end
+
+			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+
+			if not humanoid or not root or humanoid.Health <= 0 then
+				return
+			end
+
+			if character:GetAttribute("inZone") == true then
+				local offset = zone.Position - root.Position
+				local direction = Vector3.new(offset.X, 0, offset.Z)
+
+				if direction.Magnitude >= 0.1 then
+					direction = direction.Unit
+
+					local speed = math.min(Anti.ZoneCenterPushForce * 0.5, ZONE_PUSH_MAX_SPEED)
+					local velocity = root.AssemblyLinearVelocity
+
+					root.AssemblyLinearVelocity = Vector3.new(direction.X * speed, velocity.Y, direction.Z * speed)
+				end
+
+				if not zoneCenterPushWasPushing then
+					createNotification("Zone Center Push", "Pushing toward Zone1's center!")
+				end
+
+				zoneCenterPushWasPushing = true
+			else
+				if zoneCenterPushWasPushing then
+					createNotification("Zone Center Push", "Outside the zone. Push stopped.")
+				end
+
+				zoneCenterPushWasPushing = false
+			end
+		end)
+	end
+
+	function Anti.SetZoneCenterPush(state, silent)
+		Anti.ZoneCenterPushEnabled = state == true
+
+		if Anti.ZoneCenterPushEnabled then
+			if not ZoneCenterPushGetZone() then
+				Anti.ZoneCenterPushEnabled = false
+				createNotification("Zone Center Push", "Couldn't find Zone1 in Workspace.")
+
+				if UI.ToggleRefs.ZoneCenterPush then
+					UI.ToggleRefs.ZoneCenterPush.Set(false, false)
+				end
+
+				return
+			end
+
+			ZoneCenterPushStartLoop()
+
+			if not silent then
+				createNotification("Zone Center Push", "Enabled! Force starts at 1.", "Success")
+			end
+		else
+			ZoneCenterPushStopLoop()
+
+			if not silent then
+				createNotification("Zone Center Push", "Disabled.")
+			end
+		end
+	end
+
+	function Anti.SetZoneCenterPushForce(value)
+		Anti.ZoneCenterPushForce = tonumber(value) or 1
+	end
+
+	player.CharacterAdded:Connect(function()
+		task.wait(1)
+
+		if Anti.ZoneCenterPushEnabled then
+			ZoneCenterPushStartLoop()
+		end
+	end)
+
+	-- Hide Username
+	local hideUsernameOriginalTexts = {}
+	local hideUsernameConnections = {}
+	local hideUsernameLoopRunning = false
+
+	local function HideUsernameReplace(instance)
+		if not UI.HideUsernameEnabled or not (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")) then
+			return
+		end
+
+		local success, currentText = pcall(function()
+			return instance.Text
+		end)
+
+		if not success or type(currentText) ~= "string" or not string.find(currentText, player.Name, 1, true) then
+			return
+		end
+
+		if hideUsernameOriginalTexts[instance] == nil then
+			hideUsernameOriginalTexts[instance] = currentText
+		end
+
+		pcall(function()
+			instance.Text = string.gsub(currentText, player.Name, "...")
+		end)
+	end
+
+	local function HideUsernameScanGui(container)
+		local success, descendants = pcall(function()
+			return container:GetDescendants()
+		end)
+
+		if success then
+			for _, instance in ipairs(descendants) do
+				HideUsernameReplace(instance)
+			end
+		end
+	end
+
+	function UI.SetHideUsername(state, silent)
+		UI.HideUsernameEnabled = state == true
+
+		if UI.HideUsernameEnabled then
+			if not hideUsernameLoopRunning then
+				hideUsernameLoopRunning = true
+
+				local playerGui = player:WaitForChild("PlayerGui")
+				local coreGui = game:GetService("CoreGui")
+
+				for _, container in ipairs({ playerGui, coreGui }) do
+					if not hideUsernameConnections[container] then
+						local success, connection = pcall(function()
+							return container.DescendantAdded:Connect(function(instance)
+								task.defer(function()
+									HideUsernameReplace(instance)
+								end)
+							end)
+						end)
+
+						if success then
+							hideUsernameConnections[container] = connection
+						end
+					end
+				end
+
+				task.spawn(function()
+					while UI.HideUsernameEnabled do
+						HideUsernameScanGui(playerGui)
+						HideUsernameScanGui(coreGui)
+						task.wait()
+					end
+
+					hideUsernameLoopRunning = false
+				end)
+			end
+
+			if not silent then
+				createNotification("Hide Username", "Hide Username enabled.", "Success")
+			end
+		else
+			hideUsernameLoopRunning = false
+
+			for container, connection in pairs(hideUsernameConnections) do
+				connection:Disconnect()
+				hideUsernameConnections[container] = nil
+			end
+
+			for instance, originalText in pairs(hideUsernameOriginalTexts) do
+				if instance and instance.Parent then
+					pcall(function()
+						instance.Text = originalText
+					end)
+				end
+			end
+
+			table.clear(hideUsernameOriginalTexts)
+
+			if not silent then
+				createNotification("Hide Username", "Hide Username disabled.")
+			end
+		end
+	end
+
+	-- Lobby Hider
+	function Teleport.ToLobbyHider()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local lobby = workspace:FindFirstChild("Lobby")
+		local ceiling = lobby and lobby:FindFirstChild("Ceiling")
+
+		if not root or not ceiling then
+			createNotification("Lobby Hider", "Could not find the lobby ceiling.", "Warning")
+			return
+		end
+
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+
+		local base = ceiling.Position
+		local result = workspace:Raycast(base + Vector3.new(0, 50, 0), Vector3.new(0, -600, 0), params)
+		local top = result and (result.Position + Vector3.new(0, 4, 0)) or (base + Vector3.new(0, 50, 0))
+
+		root.CFrame = CFrame.new(top, root.Position + root.CFrame.LookVector)
+		createNotification("Lobby Hider", "Hid above the lobby.", "Success")
+	end
+
+	-- Lab / bunker codes
+	local LabAssetCodes = {
+		["9648755440"] = "8",
+		["9648765536"] = "2",
+		["9648723237"] = "3",
+		["9648718450"] = "6",
+		["9648769161"] = "4",
+		["9648730082"] = "6",
+		["9648734698"] = "2",
+		["9648712563"] = "2",
+		["9648742013"] = "7",
+		["9648745618"] = "3",
+		["9648715920"] = "6",
+		["9648752438"] = "2",
+		["9648749145"] = "8",
+		["9648759883"] = "9",
+		["9648738553"] = "8"
+	}
+
+	local function LabGetCode()
+		local map = workspace:FindFirstChild("Map")
+		local codeBrick = map and map:FindFirstChild("CodeBrick")
+		local surfaceGui = codeBrick and codeBrick:FindFirstChild("SurfaceGui")
+
+		if not surfaceGui then
+			return nil, "CodeBrick/SurfaceGui not found."
+		end
+
+		local templates = {}
+
+		for _, object in ipairs(surfaceGui:GetChildren()) do
+			if object.Name == "IMGTemplate" then
+				table.insert(templates, object)
+			end
+		end
+
+		if #templates ~= 4 then
+			return nil, "Found " .. #templates .. " images instead of 4."
+		end
+
+		table.sort(templates, function(a, b)
+			if math.abs(a.AbsolutePosition.X - b.AbsolutePosition.X) > 1 then
+				return a.AbsolutePosition.X < b.AbsolutePosition.X
+			end
+
+			return a.AbsolutePosition.Y < b.AbsolutePosition.Y
+		end)
+
+		local result = {}
+
+		for index, imageObject in ipairs(templates) do
+			local image = tostring(imageObject.Image)
+			local assetId = image:match("[?&]id=(%d+)") or image:match("rbxassetid://(%d+)") or image:match("(%d+)$")
+			local digit = assetId and LabAssetCodes[assetId]
+
+			if not digit then
+				return nil, "Unknown image at position " .. index .. ": " .. image
+			end
+
+			result[index] = digit
+		end
+
+		return table.concat(result), nil
+	end
+
+	local function LabGetKeypadButtons()
+		local map = workspace:FindFirstChild("Map")
+		local originOffice = map and map:FindFirstChild("OriginOffice")
+		local codeDoor = originOffice and originOffice:FindFirstChild("CodeDoor")
+		local door = codeDoor and codeDoor:FindFirstChild("Door")
+		local keypad = door and door:FindFirstChild("Keypad")
+		local buttonsFolder = keypad and keypad:FindFirstChild("Buttons")
+
+		if not buttonsFolder then
+			return nil, "Keypad Buttons not found."
+		end
+
+		return buttonsFolder, nil, door
+	end
+
+	local function LabResetKeypad(buttonsFolder)
+		local resetButton = buttonsFolder:FindFirstChild("Reset")
+		local resetDetector = resetButton and resetButton:FindFirstChildOfClass("ClickDetector")
+
+		if not resetDetector then
+			return false
+		end
+
+		fireclickdetector(resetDetector)
+		return true
+	end
+
+	local function LabEnterCode(buttonsFolder, code)
+		for index = 1, #code do
+			local digit = code:sub(index, index)
+			local button = buttonsFolder:FindFirstChild(digit)
+			local clickDetector = button and button:FindFirstChildOfClass("ClickDetector")
+
+			if not clickDetector then
+				return false, "ClickDetector missing from button " .. digit .. "."
+			end
+
+			fireclickdetector(clickDetector)
+			task.wait(0.15)
+		end
+
+		local enterButton = buttonsFolder:FindFirstChild("Enter")
+		local enterDetector = enterButton and enterButton:FindFirstChildOfClass("ClickDetector")
+
+		if not enterDetector then
+			return false, "ClickDetector missing from Enter."
+		end
+
+		fireclickdetector(enterDetector)
+		return true, nil
+	end
+
+	function Main.OpenLabAndTeleport()
+		local code, codeError = LabGetCode()
+
+		if not code then
+			createNotification("Open Lab + Teleport", codeError or "Could not read the code.", "Warning")
+			return
+		end
+
+		local buttonsFolder, keypadError, door = LabGetKeypadButtons()
+
+		if not buttonsFolder then
+			createNotification("Open Lab + Teleport", keypadError or "Keypad not found.", "Warning")
+			return
+		end
+
+		local doorPart = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
+		local character = player.Character or player.CharacterAdded:Wait()
+		local root = character:FindFirstChild("HumanoidRootPart")
+
+		if not doorPart or not root then
+			createNotification("Open Lab + Teleport", "No door part or character root found.", "Warning")
+			return
+		end
+
+		local targetPosition = doorPart.Position + (-doorPart.CFrame.RightVector * 20)
+		root.CFrame = CFrame.new(targetPosition) * (root.CFrame - root.CFrame.Position)
+
+		if not LabResetKeypad(buttonsFolder) then
+			createNotification("Open Lab + Teleport", "Reset button or ClickDetector missing.", "Warning")
+			return
+		end
+
+		task.wait(0.2)
+
+		local entered, enterError = LabEnterCode(buttonsFolder, code)
+
+		if not entered then
+			createNotification("Open Lab + Teleport", enterError or "Could not enter the code.", "Warning")
+			return
+		end
+
+		createNotification("Code Entered [ " .. code .. " ]", "Reset keypad, teleported left of door, and entered code.", "Success")
+	end
+
+	function Main.OpenBunker()
+		local code, codeError = LabGetCode()
+
+		if not code then
+			createNotification("Open Bunker", codeError or "Could not read the code.", "Warning")
+			return
+		end
+
+		local buttonsFolder, keypadError = LabGetKeypadButtons()
+
+		if not buttonsFolder then
+			createNotification("Open Bunker", keypadError or "Keypad not found.", "Warning")
+			return
+		end
+
+		if not LabResetKeypad(buttonsFolder) then
+			createNotification("Open Bunker", "Reset button or ClickDetector missing.", "Warning")
+			return
+		end
+
+		task.wait(0.2)
+
+		local entered, enterError = LabEnterCode(buttonsFolder, code)
+
+		if not entered then
+			createNotification("Open Bunker", enterError or "Could not enter the code.", "Warning")
+			return
+		end
+
+		createNotification("Bunker Code Entered [ " .. code .. " ]", "Keypad reset and code entered. No teleport performed.", "Success")
+	end
+
+	function Main.ShowLabCode()
+		local code, codeError = LabGetCode()
+
+		if not code then
+			createNotification("Show Lab Code", codeError or "Could not read the code.", "Warning")
+			return
+		end
+
+		createNotification("Lab Code: " .. code, "Code will disappear in 10 seconds.", "Info", nil, 10, true)
+	end
+
+	-- Max zoom out
+	function UI.SetMaxZoomOut(value)
+		pcall(function()
+			player.CameraMaxZoomDistance = tonumber(value) or 128
+		end)
+	end
+
+end
+
+PortedSections()
+
 UI.AutoRejoinEnabled = false
 UI.AutoRejoinConnections = {}
 UI.AutoRejoinBusy = false
@@ -9043,6 +10439,18 @@ function UI.SetInfiniteJump(state, silent)
 	end
 end
 
+local function ensureGuiFolder(folder, name)
+	if folder and folder.Parent then
+		return folder
+	end
+
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	local newFolder = Instance.new("Folder")
+	newFolder.Name = name or "Part"
+	newFolder.Parent = playerGui or game:GetService("CoreGui")
+	return newFolder
+end
+
 local ESP = {
 	Enabled = false,
 	Connections = {},
@@ -9054,14 +10462,7 @@ local ESP = {
 }
 
 function ESP.EnsureFolder()
-	if ESP.Folder and ESP.Folder.Parent then
-		return ESP.Folder
-	end
-
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	ESP.Folder = Instance.new("Folder")
-	ESP.Folder.Name = "Part"
-	ESP.Folder.Parent = playerGui or gui or game:GetService("CoreGui")
+	ESP.Folder = ensureGuiFolder(ESP.Folder, "Part")
 	return ESP.Folder
 end
 
@@ -9422,14 +10823,7 @@ function ItemESP.Clear()
 end
 
 function ItemESP.EnsureFolder()
-	if ItemESP.Folder and ItemESP.Folder.Parent then
-		return ItemESP.Folder
-	end
-
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	ItemESP.Folder = Instance.new("Folder")
-	ItemESP.Folder.Name = "Part"
-	ItemESP.Folder.Parent = playerGui or gui or game:GetService("CoreGui")
+	ItemESP.Folder = ensureGuiFolder(ItemESP.Folder, "Part")
 	return ItemESP.Folder
 end
 
@@ -9648,23 +11042,6 @@ function UI.IsJumpBusDetectionActive()
 	return not UI.JumpBusTimerSeen and now - (UI.JumpBusSearchStartedAt or 0) <= 12
 end
 
-function UI.GetBusCandidateRoot(object)
-	local current = object
-	local candidate = nil
-
-	while current and current ~= workspace do
-		local lowerName = string.lower(current.Name)
-
-		if string.find(lowerName, "bus", 1, true) and (current:IsA("Model") or current:IsA("BasePart")) then
-			candidate = current
-		end
-
-		current = current.Parent
-	end
-
-	return candidate
-end
-
 function UI.IsJumpBusCandidate(object)
 	local lowerName = string.lower(object.Name)
 	return string.find(lowerName, "bus", 1, true) ~= nil and (object:IsA("Model") or object:IsA("BasePart"))
@@ -9686,7 +11063,7 @@ function UI.GetBusCandidates(rootPosition)
 
 		if ok then
 			for _, part in ipairs(nearbyParts) do
-				local candidate = UI.GetBusCandidateRoot(part)
+				local candidate = Teleport.GetBusCandidateFromObject(part)
 
 				if candidate and not seen[candidate] then
 					seen[candidate] = true
@@ -10227,7 +11604,7 @@ local function buildItemTeleportMenuNames()
 	Items.RefreshCrates()
 
 	if #Items.Crates > 0 then
-		liveNames[Utility.NormalizeName("Meteor Crate D3T3CT3D")] = true
+		liveNames[Utility.NormalizeName("Meteor Crate")] = true
 	end
 
 	table.sort(extra, function(left, right)
@@ -10304,7 +11681,7 @@ local function getTeleportRows(tabName)
 				})
 			end
 		end
-	elseif tabName == "DESTINATIONS" then
+	elseif tabName == "Locations" then
 		for _, location in ipairs(Teleport.Locations) do
 			table.insert(rows, {
 				Title = location.Name,
@@ -10404,6 +11781,15 @@ local function isLauncherDescendant(object)
 	return MinimizedLauncher.Gui and object:IsDescendantOf(MinimizedLauncher.Gui)
 end
 
+local function isWindUITitleText(text)
+	text = tostring(text or "")
+
+	return text == "SVCLUTCHER HUB OP"
+		or text == "$VC|UTCH3R HUB》》》》"
+		or string.find(text, "SVCLUTCHER", 1, true) ~= nil
+		or string.find(text, "$VC|UTCH3R", 1, true) ~= nil
+end
+
 local function findWindUIMainWindowInfo()
 	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
 
@@ -10414,7 +11800,7 @@ local function findWindUIMainWindowInfo()
 	for _, object in ipairs(playerGui:GetDescendants()) do
 		if not isLauncherDescendant(object)
 			and (object:IsA("TextLabel") or object:IsA("TextButton"))
-			and object.Text == "$VC|UTCH3R HUB》》》》" then
+			and isWindUITitleText(object.Text) then
 			local screenGui = getScreenGuiAncestor(object)
 
 			if screenGui then
@@ -10579,6 +11965,7 @@ local function ensureMinimizedLauncher()
 	MinimizedLauncher.Gui = screenGui
 	MinimizedLauncher.Container = container
 	MinimizedLauncher.Button = container
+	registerHubGui(screenGui)
 end
 
 local function refreshMinimizedLauncher()
@@ -10607,6 +11994,7 @@ local function refreshMinimizedLauncher()
 		MinimizedLauncher.MainGui = info.ScreenGui
 		MinimizedLauncher.MainRoot = info.Root
 		MinimizedLauncher.HasSeenMainWindow = true
+		registerHubGui(info.ScreenGui)
 		local showLauncher = (info.Visible == false or info.Minimized == true) and os.clock() - MinimizedLauncher.LastClickAt > 0.4
 
 		if showLauncher then
@@ -10872,6 +12260,7 @@ local function openTeleportSideMenu()
 	TeleportMenu.LastRowsSignature = nil
 	Preferences.TeleportMenuOpen = true
 	queueSavePreferences()
+	registerHubGui(screenGui)
 	renderTeleportMenuRows()
 
 	TeleportMenu.PlayerAddedConnection = Players.PlayerAdded:Connect(function()
@@ -10943,6 +12332,38 @@ function UI.GetRecommendedFeatureState(key)
 		return Anti.HideUnderMapEnabled == true
 	elseif key == "DisableNotifications" then
 		return NotificationsDisabled == true
+	elseif key == "InstantLand" then
+		return UI.InstantLandEnabled == true
+	elseif key == "SlapAuraRange" then
+		return Combat.SlapAuraRangePart ~= nil
+	elseif key == "AutoWin" then
+		return Combat.AutoWinEnabled == true
+	elseif key == "KillPlayer" then
+		return Combat.KillTeleportEnabled == true
+	elseif key == "AutoBombBus" then
+		return Items.AutoBombBusEnabled == true
+	elseif key == "AutoGotoCrate" then
+		return Items.AutoGotoCrateEnabled == true
+	elseif key == "GetAllItems" then
+		return Items.GetAllItemsEnabled == true
+	elseif key == "AntiAcid" then
+		return Anti.AntiAcidEnabled == true
+	elseif key == "AntiLava" then
+		return Anti.AntiLavaEnabled == true
+	elseif key == "AntiAcidLava" then
+		return Anti.AcidLavaEnabled == true
+	elseif key == "AntiCubeOfDeath" then
+		return Anti.AntiCubeOfDeathEnabled == true
+	elseif key == "RemoveZoneEffect" then
+		return Anti.RemoveZoneEffectEnabled == true
+	elseif key == "DeleteAllSeats" then
+		return Anti.DeleteAllSeatsEnabled == true
+	elseif key == "SpeedBoost" then
+		return UI.SpeedBoostEnabled == true
+	elseif key == "ZoneCenterPush" then
+		return Anti.ZoneCenterPushEnabled == true
+	elseif key == "HideUsername" then
+		return UI.HideUsernameEnabled == true
 	end
 
 	local toggle = UI.ToggleRefs[key]
@@ -11050,34 +12471,42 @@ function UI.SetRecommendedSettings(state, silent)
 	task.delay(0.8, syncAllToggleVisuals)
 end
 
-local function applyTheme(themeName)
-	local ok = false
-	local applied = false
+local function applyTheme(themeName, silent)
+	themeName = tostring(themeName or "Matrix")
 
-	ok = pcall(function()
+	local ok = pcall(function()
 		if WindUIWindow and type(WindUIWindow.SetTheme) == "function" then
 			WindUIWindow:SetTheme(themeName)
-			applied = true
 		elseif WindUI and type(WindUI.SetTheme) == "function" then
 			WindUI:SetTheme(themeName)
-			applied = true
 		end
 	end)
 
-	if ok and applied then
-		Preferences.Theme = tostring(themeName or "Dark")
-		queueSavePreferences()
-		createNotification("Theme", "Theme changed to " .. tostring(themeName) .. ".", "Success")
-	elseif not applied then
-		createNotification("Theme", "This WindUI build did not expose a theme setter.", "Warning")
+	if not ok then
+		if not silent then
+			createNotification("Theme", "This WindUI build did not expose a theme setter.", "Warning")
+		end
+
+		return
+	end
+
+	Preferences.Theme = themeName
+	queueSavePreferences()
+
+	if not silent then
+		createNotification("Theme", "Theme changed to " .. themeName .. ".", "Success")
 	end
 end
 
 -- Main
 AddButton(TabMain, "Get Code + Go Barn", "GOTO LAB ENTERS CODE", "hash", Main.GetCodeGoBarn)
+AddButton(TabMain, "Open Lab + Teleport", "READS CODE, TELEPORTS LEFT OF DOOR, ENTERS IT", "door-open", Main.OpenLabAndTeleport)
+AddButton(TabMain, "Open Bunker", "READS CODE AND ENTERS IT NO TELEPORT", "door-closed", Main.OpenBunker)
+AddButton(TabMain, "Show Lab Code", "SHOWS THE CODE FOR 10 SECONDS", "eye", Main.ShowLabCode)
 AddButton(TabMain, "Open Teleport Menu", "GOTO = ALL U KNOW WHAT THIS DOES", "map", openTeleportSideMenu)
 AddToggle(TabMain, "Early Bus YEET", "YEETS U OUT OF BUS LIKE A MAD TRUCK DRIVER", false, UI.SetAutoEarlyBusJump, "EarlyBusJump")
 AddToggle(TabMain, "Infinite yeet", "Lets you jump INFINITE", false, UI.SetInfiniteJump, "InfiniteJump")
+AddToggle(TabMain, "Instant Landing", "SNAPS U TO THE CRYSTAL THE SECOND U LAND", false, UI.SetInstantLand, "InstantLand")
 AddToggle(TabMain, "Player Stats ESP", "ESP = ENABLED", false, UI.SetPlayerStatsESP, "PlayerESP")
 AddToggle(TabMain, "Item ESP", "ESP ENABLED", false, UI.SetItemESP, "ItemESP")
 AddToggle(TabMain, "Auto Rejoin", "Rejoins after death or disconnect", false, UI.SetAutoRejoin, "AutoRejoin")
@@ -11087,12 +12516,12 @@ AddToggle(TabMain, "mr ducks his settings", "Slap Aura, ESP, anti-ragdoll, sorti
 local _, autoCollectRef = AddToggle(TabItems, "Auto collect", "GETS ITEMS AFTER U JUMPED", false, Items.SetAutoCollect, "AutoCollect")
 Items.AutoCollectToggle = autoCollectRef
 
-local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "AUTO PICK UP ARE U DUMMY?", false, Items.SetAutoPickup, "AutoPickup")
+local _, autoPickupRef = AddToggle(TabItems, "Auto pick up", "AUTO PICK UP ARE U DUMMY?", true, Items.SetAutoPickup, "AutoPickup")
 Items.AutoPickupToggle = autoPickupRef
 
 AddToggle(TabItems, "Auto Heal", "AUTO HEAL U KNOW BRO", false, Items.SetAutoHeal, "AutoHeal")
 AddToggle(TabItems, "Auto Sort", "WELL THIS IS BETA", false, Items.SetAutoSort, "AutoSort")
-local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent ITEMS ARE U DUMB", false, Items.SetAutoPermanentItems, "AutoPermanentItems")
+local _, permanentRef = AddToggle(TabItems, "Auto Use Permanent Items", "Uses permanent ITEMS ARE U DUMB", true, Items.SetAutoPermanentItems, "AutoPermanentItems")
 autoPermanentToggle = permanentRef
 
 AddButton(TabItems, "Use Spheres", "Uses all Sphere of Fury tools ARE U DUMB?", "circle", Items.UseSpheres)
@@ -11102,18 +12531,28 @@ AddButton(TabItems, "Drop All Items", "IM HUNGRY", "trash-2", Items.DropAllItems
 AddButton(TabItems, "Drop Permanent Items", "NOO I DONT WANT THAT", "trash-2", Items.DropAllPermanents)
 AddButton(TabItems, "Drop Temp Items", "Drops non-permanent held items quickly USELESS", "trash", Items.DropTempItems)
 AddButton(TabItems, "Meteor Crate", "Teleports to nearest meteor crate USELESS", "box", Items.TeleportToCrate)
+AddToggle(TabItems, "Auto goto crate", "SITS ON THE CLOSEST CRATE UNTIL IT BREAKS", false, Items.SetAutoGotoCrate, "AutoGotoCrate")
+AddToggle(TabItems, "Auto Bomb Bus", "DROPS A BOMB 10 SECONDS INTO THE BUS", false, Items.SetAutoBombBus, "AutoBombBus")
+AddToggle(TabItems, "Get all items", "TWEENS TO EVERY ITEM NO NOCLIP CAN CLIP GROUND", false, Items.SetGetAllItems, "GetAllItems")
 
 -- Teleports
 AddButton(TabTeleports, "Teleport On School Bus", "Teleports you on top of the school bus HEHEHEHEHEEEE", "bus-front", Teleport.ToSchoolBusTop)
+AddButton(TabTeleports, "Lobby Hider", "STICKS U ABOVE THE LOBBY CEILING", "home", Teleport.ToLobbyHider)
 
 -- Combat
 AddSlider(TabCombat, "Hitbox Size", "Adjust hitbox size (10-20) THE WORD SAYS IT", Combat.HitboxMinSize, Combat.HitboxMaxSize, Combat.HitboxSize, 1, Combat.SetHitboxSize)
 AddToggle(TabCombat, "Expand Hitbox", "Applies expanded hitbox to players BRUHHHH", false, Combat.SetHitboxExpanded, "ExpandHitbox")
 AddToggle(TabCombat, "Visualize Hitboxes", "Shows neon hitbox preview OOH SHINYY", Combat.HitboxVisible, Combat.SetHitboxVisible, "VisualizeHitboxes")
 AddToggle(TabCombat, "Slap Aura", "WELL U DEAD BUDDY", false, Combat.SetSlapAura, "SlapAura")
+AddToggle(TabCombat, "Slap Aura Range", "GREEN BALL SO U CAN SEE THE RANGE", false, Combat.SetSlapAuraRange, "SlapAuraRange")
+AddDropdown(TabCombat, "Slap Aura Speed", "Safe or fast, fast may get u kicked", { "Safe", "Fast (May get you kicked)" }, "Safe", Combat.SetSlapAuraSpeed, "SlapAuraSpeed")
 AddToggle(TabCombat, "Auto Slap", "auto clicker 3.0", false, Combat.SetAutoGloveTap, "AutoSlap")
 AddButton(TabCombat, "Teleport To Lowest Health", "he knew he fucked up", "heart-pulse", Combat.TeleportToLowestHealthPlayer)
 AddButton(TabCombat, "Teleport To Nearest", "cooked 2.0", "crosshair", Combat.TeleportToNearestPlayer)
+AddToggle(TabCombat, "Auto Win", "SITS ON PLAYERS AND SLAPS THEM FOR U", false, Combat.SetAutoWin, "AutoWin")
+AddDropdown(TabCombat, "Auto Win Mode", "One at a time or slap all", { "One at a time", "Slap All" }, "One at a time", Combat.SetAutoWinMode, "AutoWinMode")
+Combat.KillTargetDropdown = AddDropdown(TabCombat, "Target", "PICK WHO KILL PLAYER GOES AFTER", Combat.GetKillTargetNames(), "(none)", Combat.SetKillTarget, "KillTarget")
+AddToggle(TabCombat, "Kill Player (Can cause kicks)", "TELEPORTS ON THE TARGET OVER AND OVER", false, Combat.SetKillPlayer, "KillPlayer")
 
 -- BETA
 AddButton(TabBETA, "Collect Crates", "Teleports under each crate and collects them in order USELESS", "box", Items.CollectCrates)
@@ -11127,6 +12566,16 @@ AddButton(TabSafety, "Auto optimize cooldown settings", "Checks ping and updates
 AddToggle(TabSafety, "Anti-Staff", "Leaves when recording keywords detected FUCKING TENCELL", false, Anti.SetStaffEnabled, "AntiStaff")
 AddToggle(TabSafety, "Hide under map", "Hides your character below the map DUMMY", false, Anti.SetHideUnderMap, "HideUnderMap")
 AddToggle(TabSafety, "Anti-Ragdoll / Anti-Slap", "Invisible cage on knockback ANTI RAGGDOLL", false, Combat.SetAntiSlap, "AntiRagdoll")
+AddToggle(TabSafety, "Anti Acid", "DELETES THE ACID FOLDERS SO IT CANT KILL U", false, Anti.SetAntiAcid, "AntiAcid")
+AddToggle(TabSafety, "Anti Lava", "DELETES EVERY LAVA PART", false, Anti.SetAntiLava, "AntiLava")
+AddToggle(TabSafety, "Anti-Acid & Lava covers", "INVISIBLE FLOOR OVER ACID AND VOLCANO", false, Anti.SetAcidLava, "AntiAcidLava")
+AddToggle(TabSafety, "Anti Cube of Death", "DELETES CUBE OF DEATH PARTS", false, Anti.SetAntiCubeOfDeath, "AntiCubeOfDeath")
+AddToggle(TabSafety, "Remove Zone Effect", "DELETES ZONE EFFECTS SO U CAN SEE", false, Anti.SetRemoveZoneEffect, "RemoveZoneEffect")
+AddToggle(TabSafety, "Delete All Seats", "DELETES EVERY SEAT IN THE GAME", false, Anti.SetDeleteAllSeats, "DeleteAllSeats")
+AddToggle(TabSafety, "Speed Boost", "EXTRA MOVEMENT WHILE U WALK", false, UI.SetSpeedBoost, "SpeedBoost")
+AddToggle(TabSafety, "Zone Center Push (Use after storm has appeared)", "PUSHES U TOWARD ZONE1 SO U DONT DIE", false, Anti.SetZoneCenterPush, "ZoneCenterPush")
+AddSlider(TabSafety, "Center Push Force", "How hard it pushes u", 1, 100, 1, 1, Anti.SetZoneCenterPushForce, "CenterPushForce")
+AddToggle(TabSafety, "Hide Username", "REPLACES UR NAME WITH ... IN GUIS", false, UI.SetHideUsername, "HideUsername")
 
 -- Settings
 AddButton(TabSettings, "Reset to default settings?", "Resets custom strikes, teleport debounce, and F lock", "rotate-ccw", function()
@@ -11157,41 +12606,33 @@ AddToggle(TabSettings, "Disable Notifications", "Disables normal notifications",
 	NotificationsDisabled = state == true
 end, "DisableNotifications")
 
+AddSlider(TabSettings, "Max Zoom Out Distance (Use after landing)", "How far u can zoom out", 1, 2000, 128, 100, UI.SetMaxZoomOut, "MaxZoomOutDistance")
+
 local allThemeNames = {
 	"Dark", "Light", "Rose", "Crimson", "Plant", "Indigo", "Sky", "Violet", "Amber",
 	"Neon Orchid", "Cyber Lime", "Solar Flare", "Ocean Sync", "Rose Terminal",
 	"Midnight Purple", "Sakura", "Arctic", "Ember", "Toxic", "Phantom", "Cotton Candy",
 	"Void", "Sunset", "Matrix",
 }
-AddDropdown(TabSettings, "Theme", "Change the color theme", allThemeNames, Preferences.Theme or "Dark", applyTheme, "Theme")
+AddDropdown(TabSettings, "Theme", "Change the color theme", allThemeNames, Preferences.Theme or "Matrix", applyTheme, "Theme")
 
 task.defer(UI.SyncCustomSettingInputVisuals)
 task.delay(0.35, UI.SyncCustomSettingInputVisuals)
+
 task.defer(function()
-	Items.SetAutoCollect(false, true)
-	Items.SetAutoPickup(false, true)
-	Items.SetAutoPermanentItems(false, true)
 	Anti.SetHideUnderMap(false, true)
-
-	if UI.ToggleRefs.AutoCollect then
-		UI.ToggleRefs.AutoCollect.Set(false, false)
-	end
-
-	if UI.ToggleRefs.AutoPickup then
-		UI.ToggleRefs.AutoPickup.Set(false, false)
-	end
-
-	if UI.ToggleRefs.AutoPermanentItems then
-		UI.ToggleRefs.AutoPermanentItems.Set(false, false)
-	end
 
 	if UI.ToggleRefs.HideUnderMap then
 		UI.ToggleRefs.HideUnderMap.Set(false, false)
 	end
 end)
+
 task.defer(syncAllToggleVisuals)
 task.delay(0.35, syncAllToggleVisuals)
 task.delay(1, syncAllToggleVisuals)
+task.defer(function()
+	applyTheme(Preferences.Theme, true)
+end)
 
 if Preferences.TeleportMenuOpen then
 	task.defer(openTeleportSideMenu)
@@ -11209,11 +12650,26 @@ if sharedEnvironment then
 		pcall(function() UI.SetAutoRejoin(false, true) end)
 		pcall(function() UI.SetInfiniteJump(false, true) end)
 		pcall(function() Anti.SetStaffEnabled(false) end)
-		pcall(function() Anti.DisableAcidLava() end)
+		pcall(function() Anti.SetAcidLava(false) end)
 		pcall(function() Anti.SetHideUnderMap(false) end)
 		pcall(function() Teleport.ClearBusTopRidePlatform() end)
 		pcall(function() closeTeleportSideMenu(true) end)
 		pcall(function() clearUnderMapSafetyPlatform() end)
+		pcall(function() UI.SetInstantLand(false, true) end)
+		pcall(function() Combat.SetSlapAuraRange(false, true) end)
+		pcall(function() Combat.SetAutoWin(false, true) end)
+		pcall(function() Combat.SetKillPlayer(false) end)
+		pcall(function() Items.SetAutoBombBus(false, true) end)
+		pcall(function() Items.SetAutoGotoCrate(false, true) end)
+		pcall(function() Items.SetGetAllItems(false, true) end)
+		pcall(function() Anti.SetAntiAcid(false, true) end)
+		pcall(function() Anti.SetAntiLava(false, true) end)
+		pcall(function() Anti.SetAntiCubeOfDeath(false, true) end)
+		pcall(function() Anti.SetRemoveZoneEffect(false, true) end)
+		pcall(function() Anti.SetDeleteAllSeats(false, true) end)
+		pcall(function() UI.SetSpeedBoost(false, true) end)
+		pcall(function() Anti.SetZoneCenterPush(false, true) end)
+		pcall(function() UI.SetHideUsername(false, true) end)
 		pcall(function()
 			MinimizedLauncher.Active = false
 			if MinimizedLauncher.Gui then
