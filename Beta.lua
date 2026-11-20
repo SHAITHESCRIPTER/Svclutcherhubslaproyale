@@ -10,6 +10,8 @@ CHANGELOG
 - Royale-only UI hidden in Battles; Farm hidden in Royale
 - ESP + Item ESP + hitbox: neon green hacker theme
 - Velocity speed: full power, safer profile
+- Battles Farm: ground-locked slap farm (no far TPs, no run-drag, no ground clip)
+- Slap Aura: fixed 3 hits/sec with drift compensation
 ]]
 
 local Services = {
@@ -2205,7 +2207,7 @@ function Items.SetEarlyAutoCollect(state, silent)
 	if state then
 		if Items.AutoCollectEnabled then
 			if not silent then createNotification("Early Auto Collect", "Turn Auto collect off first.", "Warning") end
-			if Items.EarlyAutoCollectToggle then Items.EarlyAutoCollectToggle.Set(false, false) end
+			if Items.AutoCollectToggle then Items.AutoCollectToggle.Set(false, false) end
 			return
 		end
 		local timerNumber = Main.FindRoundTimer()
@@ -2318,7 +2320,7 @@ Combat = {
 	HitboxColor = Color3.fromRGB(0, 255, 70), HitboxExpanded = false, HitboxVisible = true,
 	SavedHitboxes = {}, HitboxConnection = nil, HitboxRefreshInterval = 0.35, LastHitboxRefresh = 0,
 	AutoGloveTapEnabled = false, AutoGloveTapThread = nil, AutoGloveTapScanInterval = 0.22,
-	SlapAuraEnabled = false, SlapAuraThread = nil, SlapAuraRange = 20, SlapAuraInterval = 0.45,
+	SlapAuraEnabled = false, SlapAuraThread = nil, SlapAuraRange = 20, SlapAuraInterval = 1 / 3, SlapAuraRate = 3,
 	AutoWinEnabled = false, AutoWinMode = "One at a time",
 	KillTargetPlayer = nil, KillTeleportEnabled = false, KillTargetDropdown = nil,
 	GloveTpSlapEnabled = false, GloveTpSlapConnections = {}, GloveTpSlapBusy = false,
@@ -2604,13 +2606,15 @@ function Combat.StartSlapAura()
 	if Combat.SlapAuraThread then return end
 	Combat.SlapAuraThread = task.spawn(function()
 		while Combat.SlapAuraEnabled do
+			local startedAt = os.clock()
 			for _, targetPlayer in ipairs(Players:GetPlayers()) do
 				local targetRoot = Combat.CanUseSlapAuraTarget(targetPlayer)
 				if targetRoot then
-					if Net.GetSlapRemote() then Net.QueueSlap(targetRoot) else Combat.ActivateGlove() end
+					if Net.GetSlapRemote() then Net.QueueSlap(targetRoot) else Combat.ActivateGlove(true) end
 				end
 			end
-			task.wait(Combat.SlapAuraInterval)
+			local spent = os.clock() - startedAt
+			task.wait(math.max(0, Combat.SlapAuraInterval - spent))
 		end
 		Combat.SlapAuraThread = nil
 	end)
@@ -2628,7 +2632,12 @@ function Combat.SetSlapAura(state, silent)
 end
 
 function Combat.SetSlapAuraSpeed(mode)
-	Combat.SlapAuraInterval = mode == "Fast (May get you kicked)" and 0.2 or 0.45
+	if mode == "Fast (May get you kicked)" then
+		Combat.SlapAuraRate = 8
+	else
+		Combat.SlapAuraRate = 3
+	end
+	Combat.SlapAuraInterval = 1 / Combat.SlapAuraRate
 end
 
 function Combat.IsEquippedGloveTool(tool)
@@ -3175,8 +3184,10 @@ Farm = {
 	AutoSlapEnabled = false, AutoSlapThread = nil, AutoSlapInterval = 0.12,
 	DummyEnabled = false, DummyThread = nil, DummyRange = 12,
 	PlayerFarmEnabled = false, PlayerFarmThread = nil,
-	AuraEnabled = false, AuraThread = nil, AuraRange = 22, AuraInterval = 0.18,
+	AuraEnabled = false, AuraThread = nil, AuraRange = 22, AuraInterval = 1 / 3, AuraRate = 3,
 	SlapFarmEnabled = false, SlapFarmThread = nil, SlapFarmInterval = 0.05, SlapFarmRotate = 4,
+	SlapFarmSnapDistance = 5.5, SlapFarmSnapCooldown = 0.3, SlapFarmVerticalTolerance = 4,
+	SlapFarmStandOffset = 2.6, SlapFarmHeight = 3.1, SlapFarmRayLength = 70,
 	DummyCache = {}, LastDummyScan = 0, LastFarmTeleport = 0, FarmTeleportInterval = 0.6,
 	DummyKeywords = { "dummy", "dummies", "trainer", "spar", "bot", "npc" },
 }
@@ -3266,10 +3277,22 @@ end
 
 function Farm.TeleportNear(position, root)
 	if os.clock() - Farm.LastFarmTeleport < Farm.FarmTeleportInterval then return false end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		local state = humanoid:GetState()
+		if humanoid.PlatformStand or state == Enum.HumanoidStateType.Ragdoll
+			or state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.FallingDown then
+			return false
+		end
+	end
 	Farm.LastFarmTeleport = os.clock()
 	root.AssemblyAngularVelocity = Vector3.zero
-	root.CFrame = Teleport.GetGroundCFrame(position, { player.Character }, true)
+	root.CFrame = Teleport.GetGroundCFrame(position, { character }, true)
 	root.AssemblyLinearVelocity = Vector3.zero
+	if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Running then
+		pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Running) end)
+	end
 	return true
 end
 
@@ -3363,23 +3386,31 @@ function Farm.SetPlayerFarm(state, silent)
 	end
 end
 
+-- Slap Aura: fixed rate, drift compensated, 3 swings per second by default
 function Farm.StartAura()
 	if Farm.AuraThread then return end
 	Farm.AuraThread = task.spawn(function()
+		local ticks = 0
 		while Farm.AuraEnabled do
+			local startedAt = os.clock()
 			local character = player.Character
 			local root = character and character:FindFirstChild("HumanoidRootPart")
 			if root then
-				Combat.EnsureGlove()
+				ticks += 1
+				if ticks % 10 == 1 then Combat.EnsureGlove() end
+				local hit = false
 				for _, targetPlayer in ipairs(Players:GetPlayers()) do
 					local _, humanoid, targetRoot = Combat.GetValidPlayerTarget(targetPlayer)
-					if humanoid and targetRoot and (root.Position - targetRoot.Position).Magnitude <= Farm.AuraRange then
-						Combat.ActivateGlove()
+					if humanoid and targetRoot
+						and (root.Position - targetRoot.Position).Magnitude <= Farm.AuraRange then
+						hit = true
 						break
 					end
 				end
+				if hit then Combat.ActivateGlove(true) end
 			end
-			task.wait(Farm.AuraInterval)
+			local spent = os.clock() - startedAt
+			task.wait(math.max(0, Farm.AuraInterval - spent))
 		end
 		Farm.AuraThread = nil
 	end)
@@ -3388,11 +3419,17 @@ end
 function Farm.SetAura(state, silent)
 	Farm.AuraEnabled = state == true
 	if Farm.AuraEnabled then
+		Combat.EnsureGlove()
 		Farm.StartAura()
-		if not silent then createNotification("Slap Aura", "Enabled.", "Success") end
+		if not silent then createNotification("Slap Aura", "Enabled at " .. tostring(Farm.AuraRate) .. "/sec.", "Success") end
 	elseif not silent then
 		createNotification("Slap Aura", "Disabled.")
 	end
+end
+
+function Farm.SetAuraRate(value)
+	Farm.AuraRate = math.clamp(tonumber(value) or 3, 1, 15)
+	Farm.AuraInterval = 1 / Farm.AuraRate
 end
 
 function Farm.SetAuraRange(value)
@@ -3403,25 +3440,75 @@ end
 function Farm.SetSlapRate(value)
 	local rate = math.clamp(tonumber(value) or 12, 1, 30)
 	Farm.AutoSlapInterval = 1 / rate
-	Farm.AuraInterval = math.max(1 / rate, 0.05)
+end
+
+-- ground-locked standing spot behind the target, never inside the floor
+function Farm.GetTargetGroundedCFrame(targetRoot)
+	local character = player.Character
+	local look = targetRoot.CFrame.LookVector
+	look = Vector3.new(look.X, 0, look.Z)
+	if look.Magnitude < 0.05 then look = Vector3.new(0, 0, -1) else look = look.Unit end
+
+	local exclude = {}
+	if character then table.insert(exclude, character) end
+	if targetRoot.Parent then table.insert(exclude, targetRoot.Parent) end
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = exclude
+
+	local base = targetRoot.Position - look * Farm.SlapFarmStandOffset
+	local right = targetRoot.CFrame.RightVector
+	local candidates = {
+		base,
+		base + right * 1.8,
+		base - right * 1.8,
+		base - look * 1.5,
+		targetRoot.Position,
+	}
+
+	for _, point in ipairs(candidates) do
+		local origin = Vector3.new(point.X, targetRoot.Position.Y + 10, point.Z)
+		local hit = workspace:Raycast(origin, Vector3.new(0, -Farm.SlapFarmRayLength, 0), params)
+		if hit then
+			local spot = Vector3.new(point.X, hit.Position.Y + Farm.SlapFarmHeight, point.Z)
+			local box = workspace:GetPartBoundsInBox(CFrame.new(spot), Vector3.new(2.6, 4.6, 2.6), params)
+			local blocked = false
+			for _, part in ipairs(box) do
+				if part ~= targetRoot and part.CanCollide and part.Transparency < 0.95 then
+					blocked = true
+					break
+				end
+			end
+			if not blocked then
+				return CFrame.lookAt(spot, Vector3.new(targetRoot.Position.X, spot.Y, targetRoot.Position.Z)), true
+			end
+		end
+	end
+
+	local fallback = Vector3.new(base.X, targetRoot.Position.Y, base.Z)
+	return CFrame.lookAt(fallback, Vector3.new(targetRoot.Position.X, fallback.Y, targetRoot.Position.Z)), false
 end
 
 function Farm.StartSlapFarm()
 	if Farm.SlapFarmThread then return end
 	Farm.SlapFarmThread = task.spawn(function()
 		local current, targetSince = nil, 0
+		local lastSnapAt, lastSlapAt = 0, 0
 		while Farm.SlapFarmEnabled do
 			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			local root = character and character:FindFirstChild("HumanoidRootPart")
-			if root then
-				Combat.EnsureGlove()
+			if root and humanoid and humanoid.Health > 0 then
+				local now = os.clock()
 				local _, _, targetRoot = Combat.GetValidPlayerTarget(current)
-				if not targetRoot then
+				if not targetRoot or now - targetSince >= Farm.SlapFarmRotate then
 					current = nil
+					targetSince = now
 					local bestDistance = math.huge
 					for _, other in ipairs(Players:GetPlayers()) do
-						local _, _, otherRoot = Combat.GetValidPlayerTarget(other)
-						if otherRoot then
+						local _, otherHumanoid, otherRoot = Combat.GetValidPlayerTarget(other)
+						if otherHumanoid and otherRoot then
 							local distance = (root.Position - otherRoot.Position).Magnitude
 							if distance < bestDistance then
 								bestDistance = distance
@@ -3429,15 +3516,42 @@ function Farm.StartSlapFarm()
 							end
 						end
 					end
-					targetSince = os.clock()
 					_, _, targetRoot = Combat.GetValidPlayerTarget(current)
 				end
+
 				if targetRoot then
-					root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 2.4)
-					root.AssemblyLinearVelocity = Vector3.zero
-					root.AssemblyAngularVelocity = Vector3.zero
-					Combat.ActivateGlove()
-					if os.clock() - targetSince > Farm.SlapFarmRotate then current = nil end
+					local state = humanoid:GetState()
+					local unstable = humanoid.PlatformStand
+						or state == Enum.HumanoidStateType.Ragdoll
+						or state == Enum.HumanoidStateType.Physics
+						or state == Enum.HumanoidStateType.FallingDown
+
+					local desired, grounded = Farm.GetTargetGroundedCFrame(targetRoot)
+					local flatGap = (Vector3.new(desired.X, 0, desired.Z)
+						- Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude
+					local heightGap = math.abs(desired.Y - root.Position.Y)
+
+					local shouldSnap = not unstable
+						and now - lastSnapAt >= Farm.SlapFarmSnapCooldown
+						and (flatGap > Farm.SlapFarmSnapDistance or heightGap > Farm.SlapFarmVerticalTolerance)
+
+					if shouldSnap then
+						lastSnapAt = now
+						pcall(function()
+							root.AssemblyAngularVelocity = Vector3.zero
+							root.CFrame = desired
+							root.AssemblyLinearVelocity = Vector3.zero
+							if grounded and humanoid:GetState() ~= Enum.HumanoidStateType.Running then
+								humanoid:ChangeState(Enum.HumanoidStateType.Running)
+							end
+						end)
+					end
+
+					if now - lastSlapAt >= Farm.SlapFarmInterval then
+						lastSlapAt = now
+						Combat.EnsureGlove()
+						Combat.ActivateGlove(true)
+					end
 				end
 			end
 			task.wait(Farm.SlapFarmInterval)
@@ -5047,6 +5161,7 @@ if Game.IsBattles then
 	AddSlider(TabFarm, "Rotate Target", "Seconds before switching target", 1, 30, 4, 1, Farm.SetSlapFarmRotate, "SlapFarmRotate")
 	AddToggle(TabFarm, "Auto Slap", "Spam glove activation", false, Farm.SetAutoSlap, "FarmAutoSlap")
 	AddToggle(TabFarm, "Slap Aura", "Slap anyone in range", false, Farm.SetAura, "FarmAura")
+	AddSlider(TabFarm, "Aura Hits/Sec", "Aura swings per second", 1, 15, 3, 1, Farm.SetAuraRate, "FarmAuraRate")
 	AddSlider(TabFarm, "Aura Range", "Aura radius", 5, 120, 22, 1, Farm.SetAuraRange, "FarmAuraRange")
 	AddToggle(TabFarm, "Dummy Farm", "Chase and slap dummies", false, Farm.SetDummyFarm, "DummyFarm")
 	AddToggle(TabFarm, "Player Farm", "Chase and slap players", false, Farm.SetPlayerFarm, "PlayerFarm")
